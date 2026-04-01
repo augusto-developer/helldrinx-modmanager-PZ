@@ -1,0 +1,133 @@
+from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
+from src.logic.manager import PZModManager, WORKSHOP_PATH, TRASH_PATH
+import os
+import uvicorn
+import asyncio
+
+app = FastAPI(title="PZ Mod Manager API")
+manager = PZModManager()
+
+# CORS configuration to allow React (Node) to access the API
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"], # In production, use the frontend URL
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Serve Workshop and Trash images as static files
+if os.path.exists(WORKSHOP_PATH):
+    app.mount("/workshop_images", StaticFiles(directory=WORKSHOP_PATH), name="workshop_images")
+
+if os.path.exists(TRASH_PATH):
+    app.mount("/trash_images", StaticFiles(directory=TRASH_PATH), name="trash_images")
+
+class ModAction(BaseModel):
+    mod_id: str = ""
+    workshop_id: str
+    name: str = ""
+
+@app.get("/api/mods")
+async def get_mods():
+    """Returns mods from JSON cache or workshop."""
+    if not manager.mods_data:
+        manager.load_cache()
+    
+    # Process image paths into API URLs
+    processed_mods = []
+    # 1. Process paths and URLs
+    for mod in manager.mods_data:
+        m = mod.copy()
+        if m.get('poster'):
+            post_path = m['poster']
+            if post_path.startswith(TRASH_PATH):
+                rel_path = os.path.relpath(post_path, TRASH_PATH).replace("\\", "/")
+                m['poster_url'] = f"/trash_images/{rel_path}"
+            elif post_path.startswith(WORKSHOP_PATH):
+                rel_path = os.path.relpath(post_path, WORKSHOP_PATH).replace("\\", "/")
+                m['poster_url'] = f"/workshop_images/{rel_path}"
+        processed_mods.append(m)
+        
+    # 2. Sort mods to match servertest.ini order in the UI
+    # - Active Mods: Follow server_mods order (top)
+    # - Inactive Mods: Follow after
+    def get_sort_key(m):
+        try:
+            return manager.server_mods.index(m['id'])
+        except ValueError:
+            return 999999 + hash(m['id']) % 1000000
+
+    processed_mods.sort(key=get_sort_key)
+        
+    return {
+        "total": manager.total_mod_folders,
+        "mods": processed_mods,
+        "server_mods": manager.server_mods,
+        "trash": manager.trash_data,
+        "dependency_map": manager.get_dependency_status()
+    }
+
+@app.post("/api/sync")
+async def sync_mods():
+    """Starts a full folder sync."""
+    try:
+        # Run heavy scan in thread to avoid blocking the API
+        await asyncio.to_thread(manager.scan_workshop)
+        await asyncio.to_thread(manager.load_server_config)
+        return {"status": "success", "message": "Synchronization completed"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/activate-mod")
+async def activate_mod(action: ModAction):
+    result = manager.activate_mod(action.mod_id)
+    if result.get("status") == "success":
+        return result
+    return result
+
+@app.post("/api/delete-volume")
+async def delete_volume(action: ModAction):
+    if manager.trash_mod(action.mod_id, action.workshop_id, action.name):
+        return {"status": "success"}
+    raise HTTPException(status_code=500, detail="Error moving to trash")
+
+@app.post("/api/delete-specific")
+async def delete_specific(action: ModAction):
+    result = manager.remove_specific_mod_id(action.mod_id, action.workshop_id)
+    if result:
+        return result
+    raise HTTPException(status_code=500, detail="Error removing specific mod")
+
+@app.post("/api/restore")
+async def restore_mod(action: ModAction):
+    if manager.restore_mod(action.workshop_id):
+        return {"status": "success"}
+    raise HTTPException(status_code=500, detail="Error restoring mod")
+
+@app.post("/api/empty-trash")
+async def empty_trash():
+    if manager.empty_trash():
+        return {"status": "success"}
+    raise HTTPException(status_code=500, detail="Error emptying trash")
+
+@app.post("/api/activate-all")
+async def activate_all():
+    result = manager.activate_all()
+    if result:
+        return result
+    raise HTTPException(status_code=500, detail="Error activating all")
+
+@app.post("/api/deactivate-all")
+async def deactivate_all():
+    if manager.deactivate_all():
+        return {"status": "success"}
+    raise HTTPException(status_code=500, detail="Error deactivating all")
+
+def start_server():
+    uvicorn.run(app, host="0.0.0.0", port=8000)
+
+if __name__ == "__main__":
+    start_server()
