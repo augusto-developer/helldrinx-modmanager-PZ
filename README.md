@@ -1,4 +1,4 @@
-# Project Zomboid Server Mod Manager PRO
+# Project Zomboid Server | HellDrinx - Tool (ModManager)
 
 A modern desktop assistant to manage your Project Zomboid server mods with ease and performance.
 

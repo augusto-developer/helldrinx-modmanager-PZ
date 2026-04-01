@@ -111,7 +111,7 @@ class App(ctk.CTk):
     def __init__(self):
         super().__init__()
 
-        self.title("PZ Server Mod Manager")
+        self.title("HellDrinx - Tool (ModManager)")
         self.geometry("1000x850")
         self.manager = PZModManager()
         self.image_cache = {}

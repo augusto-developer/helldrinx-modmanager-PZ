@@ -3,13 +3,14 @@ import re
 import shutil
 import json
 
-# Caminhos padrão
-WORKSHOP_PATH = r"C:\Program Files (x86)\Steam\steamapps\workshop\content\108600"
-SERVER_CONFIG_FILE = os.path.join(os.environ['USERPROFILE'], "Zomboid", "Server", "servertest.ini")
+# Default Paths and Data Files
+DEFAULT_WORKSHOP = r"C:\Program Files (x86)\Steam\steamapps\workshop\content\108600"
+DEFAULT_SERVER_INI = os.path.join(os.environ.get('USERPROFILE', ''), "Zomboid", "Server", "servertest.ini")
 TRASH_PATH = os.path.join(os.getcwd(), "src", "trash")
 CACHE_FILE = os.path.join(os.getcwd(), "src", "mods_cache.json")
 MASTER_ORDER_FILE = os.path.join(os.getcwd(), "src", "master_order.json")
 SORTING_RULES_FILE = os.path.join(os.getcwd(), "sorting_rules.txt")
+SETTINGS_FILE = os.path.join(os.getcwd(), "src", "settings.json")
 
 class PZModManager:
     def log(self, message):
@@ -18,29 +19,60 @@ class PZModManager:
             f.write(f"{message}\n")
 
     def __init__(self):
-        self.mods_data = [] # Lista flat {id, name, workshop_id, poster}
-        self.server_mods = [] # IDs dos mods ativos no server
+        self.mods_data = [] 
+        self.server_mods = [] 
         self.total_mod_folders = 0
-        self.trash_data = [] # Histórico da lixeira
-        self.master_order = [] # Gabarito de ordem (slots)
-        self.sorting_rules = {} # Regras do sorting_rules.txt
+        self.trash_data = [] 
+        self.master_order = [] 
+        self.sorting_rules = {} 
+        
+        # Settings
+        self.workshop_path = DEFAULT_WORKSHOP
+        self.server_config_path = DEFAULT_SERVER_INI
+        self.load_settings()
+
         self._load_master_order()
         self._load_trash_metadata()
         self._load_sorting_rules()
         self.load_server_config()
 
+    def load_settings(self):
+        if os.path.exists(SETTINGS_FILE):
+            try:
+                with open(SETTINGS_FILE, "r") as f:
+                    data = json.load(f)
+                    self.workshop_path = data.get("workshop_path", DEFAULT_WORKSHOP)
+                    self.server_config_path = data.get("server_config_path", DEFAULT_SERVER_INI)
+            except: pass
+
+    def save_settings(self, workshop_path, server_config_path):
+        self.workshop_path = workshop_path
+        self.server_config_path = server_config_path
+        data = {
+            "workshop_path": self.workshop_path,
+            "server_config_path": self.server_config_path
+        }
+        os.makedirs(os.path.dirname(SETTINGS_FILE), exist_ok=True)
+        with open(SETTINGS_FILE, "w") as f:
+            json.dump(data, f, indent=4)
+        # Re-load server config after path change
+        self.load_server_config()
+
     def scan_workshop(self, progress_callback=None):
-        """Varre Workshop e Lixeira enviando progresso para a UI."""
-        self.log(f"--- Iniciando Scan Workshop em {WORKSHOP_PATH} ---")
+        """Variable Workshop and Trash reporting progress to UI."""
+        self.log(f"--- Scan Workshop started at {self.workshop_path} ---")
         self.mods_data = []
         self.total_mod_folders = 0
         
-        if not os.path.exists(WORKSHOP_PATH):
-            self.log(f"ERRO: WORKSHOP_PATH não existe!")
+        if not os.path.exists(self.workshop_path):
+            self.log(f"ERROR: workshop_path does not exist: {self.workshop_path}")
             return None
 
         # 1. Contagem prévia
-        workshop_ids = [d for d in os.listdir(WORKSHOP_PATH) if os.path.isdir(os.path.join(WORKSHOP_PATH, d))]
+        workshop_ids = []
+        if os.path.exists(self.workshop_path):
+            workshop_ids = [d for d in os.listdir(self.workshop_path) if os.path.isdir(os.path.join(self.workshop_path, d))]
+        
         self.log(f"Pastas encontradas no Workshop: {len(workshop_ids)}")
         trash_ids = [d for d in os.listdir(TRASH_PATH) if os.path.isdir(os.path.join(TRASH_PATH, d)) and d != "metadata.json"] if os.path.exists(TRASH_PATH) else []
         total_steps = len(workshop_ids) + len(trash_ids)
@@ -49,7 +81,7 @@ class PZModManager:
         # 2. Escanear Workshop
         for wid in workshop_ids:
             try:
-                w_path = os.path.join(WORKSHOP_PATH, wid)
+                w_path = os.path.join(self.workshop_path, wid)
                 has_mod = False
                 mods_dir = os.path.join(w_path, "mods")
                 if os.path.exists(mods_dir):
@@ -142,12 +174,12 @@ class PZModManager:
         return False
 
     def load_server_config(self):
-        """Lê o servertest.ini para identificar mods ativos."""
-        if not os.path.exists(SERVER_CONFIG_FILE):
+        """Reads servertest.ini to identify linked mods."""
+        if not os.path.exists(self.server_config_path):
             return "servertest.ini file not found!"
         try:
-            self.server_mods = [] # Reset para evitar mods "fantasmas"
-            with open(SERVER_CONFIG_FILE, "r", encoding="utf-8", errors="ignore") as f:
+            self.server_mods = [] 
+            with open(self.server_config_path, "r", encoding="utf-8", errors="ignore") as f:
                 for line in f:
                     if line.startswith("Mods="):
                         line_content = line.replace("Mods=", "").strip()
@@ -188,11 +220,11 @@ class PZModManager:
 
         content = clean_line("Mods", ids_to_remove, content)
         content = clean_line("WorkshopId", [workshop_id], content)
-        with open(SERVER_CONFIG_FILE, "w", encoding="utf-8") as f: f.write(content)
+        with open(self.server_config_path, "w", encoding="utf-8") as f: 
+            f.write(content)
 
     def activate_mod(self, mod_id):
-        """Ativa um mod e todas as suas dependências recursivamente."""
-        if not os.path.exists(SERVER_CONFIG_FILE): return False
+        if not os.path.exists(self.server_config_path): return {"status": "error", "message": "servertest.ini not found"}
         
         # 1. Obter dependências
         dep_status = self.get_dependency_status()
@@ -238,7 +270,7 @@ class PZModManager:
 
         # 3. Atualizar servertest.ini
         try:
-            with open(SERVER_CONFIG_FILE, "r", encoding="utf-8", errors="ignore") as f:
+            with open(self.server_config_path, "r", encoding="utf-8", errors="ignore") as f:
                 content = f.read()
 
             def update_line(prefix, items_to_add, content_str):
@@ -280,16 +312,16 @@ class PZModManager:
                 
                 content = re.sub(r"^WorkshopItems=.*$", f"WorkshopItems={';'.join(self._sort_workshop_ids(wids_to_add, final_mod_ids))}", content, flags=re.MULTILINE)
             
-            with open(SERVER_CONFIG_FILE, "w", encoding="utf-8") as f: f.write(content)
+            with open(self.server_config_path, "w", encoding="utf-8") as f: f.write(content)
             self.load_server_config()
             return {"status": "success"}
         except Exception as e: 
             return {"status": "error", "title": "Unexpected Error", "message": str(e)}
 
     def remove_specific_mod_id(self, mod_id, workshop_id):
-        if not os.path.exists(SERVER_CONFIG_FILE): return False
+        if not os.path.exists(self.server_config_path): return False
         try:
-            with open(SERVER_CONFIG_FILE, "r", encoding="utf-8", errors="ignore") as f:
+            with open(self.server_config_path, "r", encoding="utf-8", errors="ignore") as f:
                 content = f.read()
 
             # Descobrir dependências antes de remover
@@ -351,7 +383,7 @@ class PZModManager:
             # if workshop_id not in remaining_wids:
             #     self.trash_mod(mod_id, workshop_id, "Volume sem mods ativos")
 
-            with open(SERVER_CONFIG_FILE, "w", encoding="utf-8") as f: f.write(content)
+            with open(self.server_config_path, "w", encoding="utf-8") as f: f.write(content)
             self.save_cache()
             self.load_server_config()
             return {"status": "success", "cleaned_up": cleaned_up_ids}
@@ -365,7 +397,7 @@ class PZModManager:
         all_workshop_ids = list(set([m['workshop_id'] for m in self.mods_data]))
         
         try:
-            with open(SERVER_CONFIG_FILE, "r", encoding="utf-8", errors="ignore") as f:
+            with open(self.server_config_path, "r", encoding="utf-8", errors="ignore") as f:
                 content = f.read()
 
             def update_line(prefix, items, content_str):
@@ -379,7 +411,7 @@ class PZModManager:
             content = update_line("Mods", final_all, content)
             content = update_line("WorkshopItems", self._sort_workshop_ids(all_workshop_ids, final_all), content)
             
-            with open(SERVER_CONFIG_FILE, "w", encoding="utf-8") as f: f.write(content)
+            with open(self.server_config_path, "w", encoding="utf-8") as f: f.write(content)
             self.load_server_config()
             return {"status": "success", "warnings": [error] if error else []}
         except: return False
@@ -387,20 +419,20 @@ class PZModManager:
     def deactivate_all(self):
         """Remove TODOS os mods do servertest.ini (limpa as linhas Mods e WorkshopId)."""
         try:
-            with open(SERVER_CONFIG_FILE, "r", encoding="utf-8", errors="ignore") as f:
+            with open(self.server_config_path, "r", encoding="utf-8", errors="ignore") as f:
                 content = f.read()
 
             content = re.sub(r"^Mods=.*$", "Mods=", content, flags=re.MULTILINE)
             content = re.sub(r"^WorkshopItems=.*$", "WorkshopItems=", content, flags=re.MULTILINE)
             
-            with open(SERVER_CONFIG_FILE, "w", encoding="utf-8") as f: f.write(content)
+            with open(self.server_config_path, "w", encoding="utf-8") as f: f.write(content)
             self.load_server_config()
             return True
         except: return False
 
     def restore_mod(self, workshop_id):
         src = os.path.join(TRASH_PATH, workshop_id)
-        dest = os.path.join(WORKSHOP_PATH, workshop_id)
+        dest = os.path.join(self.workshop_path, workshop_id)
         self.log(f"Restoring Workshop ID {workshop_id}...")
         
         if os.path.exists(src):

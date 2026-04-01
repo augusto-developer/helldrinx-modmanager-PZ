@@ -2,12 +2,12 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
-from src.logic.manager import PZModManager, WORKSHOP_PATH, TRASH_PATH
+from src.logic.manager import PZModManager, TRASH_PATH
 import os
 import uvicorn
 import asyncio
 
-app = FastAPI(title="PZ Mod Manager API")
+app = FastAPI(title="HellDrinx - Tool (ModManager)")
 manager = PZModManager()
 
 # CORS configuration to allow React (Node) to access the API
@@ -19,11 +19,15 @@ app.add_middleware(
 )
 
 # Serve Workshop and Trash images as static files
-if os.path.exists(WORKSHOP_PATH):
-    app.mount("/workshop_images", StaticFiles(directory=WORKSHOP_PATH), name="workshop_images")
+if os.path.exists(manager.workshop_path):
+    app.mount("/workshop_images", StaticFiles(directory=manager.workshop_path), name="workshop_images")
 
 if os.path.exists(TRASH_PATH):
     app.mount("/trash_images", StaticFiles(directory=TRASH_PATH), name="trash_images")
+
+class SettingsAction(BaseModel):
+    workshop_path: str
+    server_config_path: str
 
 class ModAction(BaseModel):
     mod_id: str = ""
@@ -46,8 +50,8 @@ async def get_mods():
             if post_path.startswith(TRASH_PATH):
                 rel_path = os.path.relpath(post_path, TRASH_PATH).replace("\\", "/")
                 m['poster_url'] = f"/trash_images/{rel_path}"
-            elif post_path.startswith(WORKSHOP_PATH):
-                rel_path = os.path.relpath(post_path, WORKSHOP_PATH).replace("\\", "/")
+            elif post_path.startswith(manager.workshop_path):
+                rel_path = os.path.relpath(post_path, manager.workshop_path).replace("\\", "/")
                 m['poster_url'] = f"/workshop_images/{rel_path}"
         processed_mods.append(m)
         
@@ -112,6 +116,20 @@ async def empty_trash():
     if manager.empty_trash():
         return {"status": "success"}
     raise HTTPException(status_code=500, detail="Error emptying trash")
+
+@app.get("/api/settings")
+async def get_settings():
+    return {
+        "workshop_path": manager.workshop_path,
+        "server_config_path": manager.server_config_path
+    }
+
+@app.post("/api/settings")
+async def update_settings(settings: SettingsAction):
+    manager.save_settings(settings.workshop_path, settings.server_config_path)
+    # We don't remount static files here as it requires app restart or complex logic,
+    # but we update the internal paths.
+    return {"status": "success"}
 
 @app.post("/api/activate-all")
 async def activate_all():

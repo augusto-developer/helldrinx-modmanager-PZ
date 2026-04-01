@@ -161,7 +161,7 @@ def run_ui():
         with ui.row().classes('w-full items-center justify-between bg-slate-900 p-6 rounded-3xl border border-slate-800 shadow-2xl'):
             with ui.column().classes('gap-0'):
                 ui.label('Project Zomboid').classes('text-blue-500 font-bold text-xs uppercase tracking-[0.2em]')
-                ui.label('Mod Manager PRO').classes('text-4xl font-extrabold text-white tracking-tight')
+                ui.label('HellDrinx - Tool (ModManager)').classes('text-4xl font-extrabold text-white tracking-tight')
             
             with ui.row().classes('items-center gap-3'):
                 ui.button('SINCRONIZAR', icon='sync', on_click=lambda: nm.run_sync(pb, sl)).props('rounded-pill elevated color=blue-700').classes('px-6 font-bold')
@@ -185,7 +185,7 @@ def run_ui():
         app.on_startup(init_flow)
 
     ui.run(
-        title="PZ Mod Manager Pro", 
+        title="HellDrinx - Tool (ModManager)", 
         native=True, 
         window_size=(1100, 950), 
         dark=True,

@@ -1,4 +1,4 @@
-import { app, BrowserWindow } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog } from 'electron';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { spawn } from 'child_process';
@@ -35,6 +35,26 @@ function createWindow() {
   mainWindow.on('closed', () => {
     mainWindow = null;
   });
+
+  // IPC handlers for selecting native files/folders
+  ipcMain.handle('select-folder', async () => {
+    const result = await dialog.showOpenDialog(mainWindow, {
+      properties: ['openDirectory']
+    });
+    if (result.canceled) return null;
+    return result.filePaths[0];
+  });
+
+  ipcMain.handle('select-file', async () => {
+    const result = await dialog.showOpenDialog(mainWindow, {
+      properties: ['openFile'],
+      filters: [
+        { name: 'Configuration Files', extensions: ['ini'] }
+      ]
+    });
+    if (result.canceled) return null;
+    return result.filePaths[0];
+  });
 }
 
 function startPythonBackend() {
@@ -68,6 +88,26 @@ app.whenReady().then(() => {
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
+});
+
+// IPC handlers for selecting native files/folders
+ipcMain.handle('select-folder', async () => {
+  const result = await dialog.showOpenDialog(mainWindow, {
+    properties: ['openDirectory']
+  });
+  if (result.canceled) return null;
+  return result.filePaths[0];
+});
+
+ipcMain.handle('select-file', async () => {
+  const result = await dialog.showOpenDialog(mainWindow, {
+    properties: ['openFile'],
+    filters: [
+      { name: 'Configuration Files', extensions: ['ini'] }
+    ]
+  });
+  if (result.canceled) return null;
+  return result.filePaths[0];
 });
 
 app.on('window-all-closed', () => {
