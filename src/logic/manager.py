@@ -2,19 +2,43 @@ import os
 import re
 import shutil
 import json
+import sys
+
+def get_base_dir():
+    if getattr(sys, 'frozen', False):
+        return os.path.dirname(sys.executable)
+    return os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
+
+BASE_DIR = get_base_dir()
 
 # Default Paths and Data Files
 DEFAULT_WORKSHOP = r"C:\Program Files (x86)\Steam\steamapps\workshop\content\108600"
 DEFAULT_SERVER_INI = os.path.join(os.environ.get('USERPROFILE', ''), "Zomboid", "Server", "servertest.ini")
-TRASH_PATH = os.path.join(os.getcwd(), "src", "trash")
-CACHE_FILE = os.path.join(os.getcwd(), "src", "mods_cache.json")
-MASTER_ORDER_FILE = os.path.join(os.getcwd(), "src", "master_order.json")
-SORTING_RULES_FILE = os.path.join(os.getcwd(), "sorting_rules.txt")
-SETTINGS_FILE = os.path.join(os.getcwd(), "src", "settings.json")
+TRASH_PATH = os.path.join(BASE_DIR, "src", "trash")
+CACHE_FILE = os.path.join(BASE_DIR, "src", "mods_cache.json")
+MASTER_ORDER_FILE = os.path.join(BASE_DIR, "src", "master_order.json")
+SORTING_RULES_FILE = os.path.join(BASE_DIR, "sorting_rules.txt")
+SETTINGS_FILE = os.path.join(BASE_DIR, "src", "settings.json")
+
+CATEGORY_TIERS = {
+    "preorder": 0,
+    "coreRequirement": 1,
+    "tweaks": 2,
+    "resource": 3,
+    "map": 4,
+    "vehicle": 5,
+    "code": 6,
+    "clothes": 7,
+    "ui": 8,
+    "other": 9,
+    "translation": 10,
+    "undefined": 11
+}
+PREORDER_MODS = ["ModManager", "ModManagerServer", "modoptions"]
 
 class PZModManager:
     def log(self, message):
-        log_file = os.path.join(os.getcwd(), "scanner_debug.log")
+        log_file = os.path.join(BASE_DIR, "scanner_debug.log")
         with open(log_file, "a", encoding="utf-8") as f:
             f.write(f"{message}\n")
 
@@ -113,6 +137,12 @@ class PZModManager:
                 
             current_step += 1
             if progress_callback: progress_callback(current_step, total_steps)
+        
+        # 4. Ingestão Automática de Regras (Supreme Power)
+        self.log("Ingesting mod rules into sorting_rules.txt...")
+        for mod_info in self.mods_data:
+            self._ingest_mod_rules(mod_info)
+        self._save_sorting_rules()
             
         self.save_cache()
         return None
@@ -120,10 +150,45 @@ class PZModManager:
     def _parse_mod_folder(self, mod_path, workshop_id):
         mod_folder = os.path.basename(mod_path)
         mod_id, mod_name, poster_path = mod_folder, mod_folder, None
-        mod_info_path = os.path.join(mod_path, "mod.info")
         requirements = []
+        incompatible = []
+        load_after = []
         
-        if os.path.exists(mod_info_path):
+        # 1. Descoberta Inteligente do mod.info (Priorizando Versões)
+        found_infos = []
+        # Checar raiz
+        if os.path.exists(os.path.join(mod_path, "mod.info")):
+            found_infos.append(("", 0.0))
+            
+        # Checar subpastas (common, 41, 42, 42.x, etc.)
+        if os.path.isdir(mod_path):
+            try:
+                for sub in os.listdir(mod_path):
+                    p = os.path.join(mod_path, sub, "mod.info")
+                    if os.path.exists(p):
+                        if sub == "common":
+                            found_infos.append((sub, 0.5))
+                        else:
+                            # Tentar extrair versão numérica (ex: 42.15 -> 42.15)
+                            ver_match = re.search(r"(\d+\.?\d*)", sub)
+                            if ver_match:
+                                found_infos.append((sub, float(ver_match.group(1))))
+                            else:
+                                found_infos.append((sub, 0.1))
+            except: pass
+
+        mod_info_path = None
+        base_search_path = mod_path
+
+        if found_infos:
+            # Ordenar pela maior versão (42.15 > 42.0 > 0.5 (common) > 0.0 (raiz))
+            found_infos.sort(key=lambda x: x[1], reverse=True)
+            best_sub = found_infos[0][0]
+            mod_info_path = os.path.join(mod_path, best_sub, "mod.info") if best_sub else os.path.join(mod_path, "mod.info")
+            base_search_path = os.path.join(mod_path, best_sub) if best_sub else mod_path
+        
+        # 2. Leitura de Metadados
+        if mod_info_path and os.path.exists(mod_info_path):
             try:
                 with open(mod_info_path, "r", encoding="utf-8", errors="ignore") as f:
                     content = f.read()
@@ -131,27 +196,130 @@ class PZModManager:
                     i_match = re.search(r"^id=(.*)", content, re.MULTILINE)
                     p_match = re.search(r"^poster=(.*)", content, re.MULTILINE)
                     r_match = re.search(r"^require=(.*)", content, re.MULTILINE)
+                    d_match = re.search(r"^dependency=(.*)", content, re.MULTILINE) # Suporte adicional
+                    inc_match = re.search(r"^incompatible=(.*)", content, re.MULTILINE)
+                    lma_match = re.search(r"^loadModAfter=(.*)", content, re.MULTILINE)
                     
                     if n_match: mod_name = n_match.group(1).strip()
                     if i_match: mod_id = i_match.group(1).strip()
                     if p_match:
-                        p_abs = os.path.join(mod_path, p_match.group(1).strip())
+                        p_abs = os.path.join(base_search_path, p_match.group(1).strip())
                         if os.path.exists(p_abs): poster_path = p_abs
                     
-                    if r_match:
-                        raw_reqs = r_match.group(1).strip()
-                        # PZ requirements can be separated by comma or just be one. 
-                        # Sometimes they have a leading backslash like \damnlib
+                    # Merge de require e dependency
+                    raw_reqs = ""
+                    if r_match: raw_reqs += r_match.group(1).strip()
+                    if d_match: 
+                        if raw_reqs: raw_reqs += ","
+                        raw_reqs += d_match.group(1).strip()
+                    
+                    if raw_reqs:
                         requirements = [r.strip().replace("\\", "") for r in raw_reqs.split(",") if r.strip()]
+                        
+                    if inc_match:
+                        raw_inc = inc_match.group(1).strip()
+                        incompatible = [i.strip().replace("\\", "") for i in raw_inc.split(",") if i.strip()]
+                    
+                    if lma_match:
+                        raw_lma = lma_match.group(1).strip()
+                        load_after = [l.strip().replace("\\", "") for l in raw_lma.split(",") if l.strip()]
             except Exception as e:
-                self.log(f"Failed to read mod.info in {mod_path}: {e}")
+                self.log(f"Failed to read mod.info in {mod_info_path}: {e}")
+                
+        if not poster_path:
+            for fallback in ["poster.png", "preview.png", "icon.png"]:
+                fallback_path = os.path.join(base_search_path, fallback)
+                if os.path.exists(fallback_path):
+                    poster_path = fallback_path
+                    break
+
+        if not poster_path:
+            try:
+                for sub_nome in os.listdir(mod_path):
+                    sub_lower = sub_nome.lower()
+                    if sub_lower.startswith("42") or sub_lower == "common":
+                        sub_dir = os.path.join(mod_path, sub_nome)
+                        if os.path.isdir(sub_dir):
+                            for fallback in ["poster.png", "preview.png", "icon.png"]:
+                                fallback_path = os.path.join(sub_dir, fallback)
+                                if os.path.exists(fallback_path):
+                                    poster_path = fallback_path
+                                    break
+                    if poster_path:
+                        break
+            except Exception:
+                pass
+
+        # --- HEURÍSTICA DE CATEGORIZAÇÃO (MLOS) ---
+        def _check_exists(paths):
+            return any(os.path.exists(os.path.join(base_search_path, p.replace("/", os.sep))) for p in paths)
+            
+        m_n_lower = mod_name.lower()
+        m_id_lower = mod_id.lower()
+        is_tweak = any(k in m_n_lower or k in m_id_lower for k in ["framework", " api", "_api", "tweak", "interface", "utilit", "bugfix"])
+        is_map = _check_exists(["media/maps"])
+        is_models = _check_exists(["media/models_X", "media/models"])
+        is_textures = _check_exists(["media/textures", "media/texturepacks"])
+        is_vehicle = _check_exists(["media/models_X/vehicles", "media/models/vehicles"])
+        is_code = _check_exists(["media/lua/client", "media/lua/server", "media/scripts", "media/shared"])
+        is_skinned = _check_exists(["media/models_X/Skinned"])
+        is_ui = _check_exists(["media/textures/ui", "media/ui"])
+        is_translation = _check_exists(["media/lua/shared/Translate"])
+        is_resource = _check_exists(["media/resource", "media/textures"])
+
+        cat_enum = 11
+        category = "undefined"
+        def apply_cat(new_cat_name, condition):
+            nonlocal cat_enum, category
+            if condition:
+                new_val = CATEGORY_TIERS.get(new_cat_name, 11)
+                if new_val < cat_enum:
+                    cat_enum = new_val
+                    category = new_cat_name
+
+        apply_cat("translation", is_translation and not (is_code or is_models or is_textures))
+        apply_cat("ui", is_ui)
+        apply_cat("clothes", is_skinned)
+        apply_cat("code", is_code and not (is_models or is_textures or is_ui or _check_exists(["media/resource"])))
+        apply_cat("vehicle", is_vehicle and is_textures)
+        apply_cat("map", is_map)
+        apply_cat("resource", (is_textures or is_resource) and not (is_code or is_models or is_map or is_ui))
+        apply_cat("tweaks", is_tweak)
         
+        if mod_id in PREORDER_MODS: apply_cat("preorder", True)
+        if category == "undefined": category = "other"
+        # ------------------------------------------
+
+        # --- ANÁLISE PROFUNDA (Critical Files) ---
+        media_files = []
+        try:
+            # Focar apenas em LUA, SCRIPTS e MAPS (Onde ocorrem conflitos reais de lógica)
+            critical_dirs = ["lua", "scripts", "maps"]
+            media_root = os.path.join(base_search_path, "media")
+            if os.path.exists(media_root):
+                for sub in os.listdir(media_root):
+                    if sub.lower() in critical_dirs:
+                        sub_p = os.path.join(media_root, sub)
+                        for r, d, f in os.walk(sub_p):
+                            for file in f:
+                                # Guardar caminho relativo para comparação
+                                rel_p = os.path.relpath(os.path.join(r, file), base_search_path).replace("\\", "/")
+                                media_files.append(rel_p)
+        except: pass
+        # ------------------------------------------
+
         self.mods_data.append({
             "id": mod_id,
             "name": mod_name,
             "workshop_id": workshop_id,
             "poster": poster_path,
-            "require": requirements
+            "require": requirements,
+            "incompatible": incompatible,
+            "loadModAfter": load_after,
+            "absolute_path": base_search_path,
+            "category": category,
+            "cat_enum": cat_enum,
+            "media_files": media_files
         })
 
     def save_cache(self):
@@ -190,21 +358,28 @@ class PZModManager:
             return str(e)
 
     def trash_mod(self, mod_id, workshop_id, mod_name):
-        src_path = os.path.join(WORKSHOP_PATH, workshop_id)
+        src_path = os.path.join(self.workshop_path, workshop_id)
         dest_path = os.path.join(TRASH_PATH, workshop_id)
         if not os.path.exists(TRASH_PATH): os.makedirs(TRASH_PATH)
         try:
             if os.path.exists(src_path): shutil.move(src_path, dest_path)
+            
+            # Update internal list: remove all mods from this workshop ID
+            self.mods_data = [m for m in self.mods_data if m['workshop_id'] != workshop_id]
+            self.total_mod_folders = len(set(m['workshop_id'] for m in self.mods_data))
+            
             self.trash_data.append({"id": mod_id, "name": mod_name, "workshop_id": workshop_id})
             self._save_trash_metadata()
             self.remove_all_mods_from_workshop_folder(workshop_id)
             self.save_cache()
             return True
-        except: return False
+        except Exception as e:
+            self.log(f"Error in trash_mod: {e}")
+            return False
 
     def remove_all_mods_from_workshop_folder(self, workshop_id):
-        if not os.path.exists(SERVER_CONFIG_FILE): return
-        with open(SERVER_CONFIG_FILE, "r", encoding="utf-8", errors="ignore") as f:
+        if not os.path.exists(self.server_config_path): return
+        with open(self.server_config_path, "r", encoding="utf-8", errors="ignore") as f:
             content = f.read()
             
         ids_to_remove = [m['id'] for m in self.mods_data if m['workshop_id'] == workshop_id]
@@ -226,42 +401,49 @@ class PZModManager:
     def activate_mod(self, mod_id):
         if not os.path.exists(self.server_config_path): return {"status": "error", "message": "servertest.ini not found"}
         
-        # 1. Obter dependências
+        # 1. Obter Grafo de Dependências
         dep_status = self.get_dependency_status()
-        to_activate = [mod_id]
+        to_activate = set([mod_id])
         
-        # Busca recursiva simples de todas as dependências
+        # 1.1. Busca recursiva de todas as dependências (ID -> ID)
         queue = [mod_id]
         visited = set()
         while queue:
             current = queue.pop(0)
             if current in visited: continue
             visited.add(current)
+            
+            # Requerimentos (require=, dependency= e loadAfter)
             reqs = dep_status.get(current, {}).get("depends_on", [])
             for r in reqs:
                 if r not in visited:
-                    to_activate.append(r)
+                    to_activate.add(r)
                     queue.append(r)
 
-        # 1.5. Ativação Inteligente de "Mods Irmãos" (Mesmo Workshop)
-        # Se um mod no mesmo Workshop Id requer este mod, ativamos também (Patch/Tradução)
-        target_workshop_id = None
-        for m in self.mods_data:
-            if m['id'] == mod_id:
-                target_workshop_id = m['workshop_id']
-                break
+        # 1.5. Ativação de "Mods Irmãos" (Mesmo Workshop)
+        # Se um mod na MESMA pasta do workshop requer qualquer mod que já vamos ativar,
+        # ou se o mod atual requer um irmão, ativamos o conjunto necessário.
         
-        if target_workshop_id:
-            for m in self.mods_data:
-                mid = m['id']
-                if m['workshop_id'] == target_workshop_id and mid not in to_activate:
-                    # Se o mod irmão requer o mod atual ou algum que já está sendo ativado
-                    # PZ usa require=modid1,modid2
-                    reqs = m.get('require', [])
-                    if any(r in to_activate for r in reqs):
-                        to_activate.append(mid)
-                        # Nota: Não precisamos processar recursivamente aqui pois assumimos 
-                        # que o irmão depende de algo já na lista.
+        # Descobrir o Workshop ID do mod que iniciou a ativação
+        main_wid = next((m['workshop_id'] for m in self.mods_data if m['id'] == mod_id), None)
+        
+        if main_wid:
+            # Varrer todos os mods que pertencem a este Workshop
+            brothers = [m for m in self.mods_data if m['workshop_id'] == main_wid]
+            
+            # Se um irmão requer qualquer coisa da nossa lista de ativação atual, ele entra.
+            # (Ex: ArmoredVestsPATCH requer ArmoredVestsWORKSHOP)
+            for b in brothers:
+                bid = b['id']
+                if bid not in to_activate:
+                    breqs = set(b.get('require', [])) | set(b.get('loadModAfter', []))
+                    if any(r in to_activate for r in breqs):
+                        self.log(f"Auto-activating brother mod: {bid} (Patch/Requirement found in same folder)")
+                        to_activate.add(bid)
+                        # Re-processar dependências deste novo irmão se necessário
+                        # (Geralmente patches não têm requerimentos novos além do base)
+        
+        to_activate_list = list(to_activate)
         
         # 2. Verificar conflitos ANTES de ativar
         for mid in to_activate:
@@ -445,6 +627,16 @@ class PZModManager:
                 shutil.move(src, dest)
                 self.trash_data = [i for i in self.trash_data if i['workshop_id'] != workshop_id]
                 self._save_trash_metadata()
+                
+                # Re-parse the folder to add mods back to active list
+                mods_dir = os.path.join(dest, "mods")
+                if os.path.exists(mods_dir):
+                    for mod_folder in os.listdir(mods_dir):
+                        mod_p = os.path.join(mods_dir, mod_folder)
+                        if os.path.isdir(mod_p):
+                            self._parse_mod_folder(mod_p, workshop_id)
+                
+                self.total_mod_folders = len(set(m['workshop_id'] for m in self.mods_data))
                 self.save_cache()
                 self.log(f"Workshop {workshop_id} restored successfully.")
                 return True
@@ -492,9 +684,11 @@ class PZModManager:
             if mid not in dependency_map:
                 dependency_map[mid] = {"depends_on": set(), "required_by": set()}
             
-            # A. Dependências de mod.info (Hard)
+            # A. Dependências de mod.info (Hard Requirements & LoadAfter)
             reqs = mod.get('require', [])
-            for r in reqs:
+            lma_list = mod.get('loadModAfter', [])
+            
+            for r in list(set(reqs) | set(lma_list)):
                 dependency_map[mid]["depends_on"].add(r)
                 if r not in dependency_map:
                     dependency_map[r] = {"depends_on": set(), "required_by": set()}
@@ -552,24 +746,141 @@ class PZModManager:
                         elif key == "loadfirst": self.sorting_rules[current_mod]["loadFirst"] = (val.strip().lower() == "on")
                         elif key == "loadlast": self.sorting_rules[current_mod]["loadLast"] = (val.strip().lower() == "on")
                         elif key == "incompatiblemods": self.sorting_rules[current_mod]["incompatibleMods"] = vals
+                        elif key == "category": self.sorting_rules[current_mod]["category"] = vals[0]
         except Exception as e:
             print(f"Error parsing rules: {e}")
 
+    def _save_sorting_rules(self):
+        """Escreve o self.sorting_rules de volta para o sorting_rules.txt mantendo a sintaxe."""
+        try:
+            lines = []
+            # Ordenar por ID para manter o arquivo organizado
+            for mod_id in sorted(self.sorting_rules.keys(), key=lambda x: x.lower()):
+                rules = self.sorting_rules[mod_id]
+                lines.append(f"[{mod_id}]")
+                if rules.get("loadFirst"): lines.append("loadFirst=on")
+                if rules.get("loadLast"): lines.append("loadLast=on")
+                
+                if rules.get("loadAfter"): 
+                    lines.append(f"loadAfter={','.join(rules['loadAfter'])}")
+                if rules.get("loadBefore"): 
+                    lines.append(f"loadBefore={','.join(rules['loadBefore'])}")
+                if rules.get("incompatibleMods"): 
+                    lines.append(f"incompatibleMods={','.join(rules['incompatibleMods'])}")
+                if rules.get("category"): 
+                    lines.append(f"category={rules['category']}")
+                lines.append("") # Linha em branco entre seções
+            
+            with open(SORTING_RULES_FILE, "w", encoding="utf-8") as f:
+                f.write("\n".join(lines))
+        except Exception as e:
+            self.log(f"Error saving sorting rules: {e}")
+
+    def _normalize_mod_id(self, mod_id):
+        """Retorna o mod_id com o casing correto se ele existir no cache, senão retorna o original."""
+        if not hasattr(self, '_case_map'):
+            self._case_map = {m['id'].lower(): m['id'] for m in self.mods_data}
+        return self._case_map.get(mod_id.lower(), mod_id)
+
+    def _ingest_mod_rules(self, mod_info):
+        """Mescla informações do mod.info para o sorting_rules.txt se ainda não existirem."""
+        mod_id = mod_info['id']
+        needs_save = False
+        
+        if mod_id not in self.sorting_rules:
+            self.sorting_rules[mod_id] = {
+                "loadAfter": [], "loadBefore": [], 
+                "loadFirst": False, "loadLast": False,
+                "incompatibleMods": [], "category": mod_info.get('category', 'undefined')
+            }
+            needs_save = True
+
+        rules = self.sorting_rules[mod_id]
+        
+        # 1. Ingerir loadModAfter e require (ambos tratamos como loadAfter para o sorting rules)
+        # Normalizando os IDs encontrados para o casing correto do sistema
+        found_afters = [self._normalize_mod_id(rid) for rid in list(set(mod_info.get('require', []) + mod_info.get('loadModAfter', [])))]
+        
+        for rid in found_afters:
+            if rid not in rules['loadAfter']:
+                rules['loadAfter'].append(rid)
+                needs_save = True
+        
+        # 2. Ingerir Incompatibilidades
+        found_inc = [self._normalize_mod_id(iid) for iid in mod_info.get('incompatible', [])]
+        for iid in found_inc:
+            if iid not in rules['incompatibleMods']:
+                rules['incompatibleMods'].append(iid)
+                needs_save = True
+                
+        # 3. Atualizar Categoria se estiver undefined
+        if rules.get('category') == 'undefined' and mod_info.get('category') != 'undefined':
+            rules['category'] = mod_info.get('category')
+            needs_save = True
+            
+        return needs_save
+
+    def get_file_conflicts(self, active_mods):
+        """Mapeia colisões de arquivos entre os mods ativados."""
+        file_to_mods = {} # path -> list(mod_id)
+        conflicts = {}    # mod_id -> list(conflitos)
+        
+        for mid in active_mods:
+            m_info = next((m for m in self.mods_data if m['id'] == mid), None)
+            if not m_info: continue
+            
+            for file_p in m_info.get("media_files", []):
+                if file_p not in file_to_mods:
+                    file_to_mods[file_p] = []
+                file_to_mods[file_p].append(mid)
+        
+        # Identificar arquivos compartilhados
+        for path, mods in file_to_mods.items():
+            if len(mods) > 1:
+                for m in mods:
+                    if m not in conflicts: conflicts[m] = []
+                    # Adicionar detalhes do conflito (quais outros mods e qual arquivo)
+                    others = [other for other in mods if other != m]
+                    conflicts[m].append({"file": path, "with": others})
+        
+        return conflicts
+
     def check_conflicts(self, mod_id, active_mods):
-        """Verifica se o mod a ser ativado colide com algum já ativo."""
+        """Verifica se o mod a ser ativado colide com algum já ativo (ID ou Arquivo)."""
         rules = self.sorting_rules.get(mod_id, {})
         incompatible = rules.get("incompatibleMods", [])
         
-        conflicts = [m for m in incompatible if m in active_mods]
-        if conflicts:
+        # 1. Conflitos de Regra (mod.info / manual)
+        rule_conflicts = [m for m in incompatible if m in active_mods]
+        if rule_conflicts:
             return {
-                "title": "🔴 Mods Incompatíveis",
-                "message": f"O Mod que você tentou ativar ({mod_id}) não funciona junto com: {', '.join(conflicts)}.",
-                "remediation": "Desative os mods conflitantes antes de tentar ativar este."
+                "title": "🔴 Mods Incompatíveis (Regras)",
+                "message": f"O Mod {mod_id} é incompatíve com: {', '.join(rule_conflicts)}.",
+                "remediation": "Desative os incompatíveis antes de ativar este."
             }
         
-        # Também verificar se o mod_id é uma dependência de ALGUÉM que é incompatível? 
-        # Geralmente a regra é no mod "filho", mas vamos manter simples por enquanto.
+        # 2. Conflitos de Arquivo Físico (Análise Profunda)
+        m_info = next((m for m in self.mods_data if m['id'] == mod_id), None)
+        if m_info and m_info.get("media_files"):
+            current_files = set(m_info["media_files"])
+            for other_id in active_mods:
+                other_info = next((m for m in self.mods_data if m['id'] == other_id), None)
+                if not other_info: continue
+                
+                # Interseção de arquivos
+                overlap = current_files.intersection(set(other_info.get("media_files", [])))
+                if overlap:
+                    # Mostrar apenas os 3 primeiros para não poluir
+                    list_overlap = list(overlap)
+                    msg = f"Conflito de Arquivos com {other_id}! Ambos modificam: {', '.join(list_overlap[:3])}"
+                    if len(list_overlap) > 3: msg += f" (e mais {len(list_overlap)-3} arquivos)"
+                    
+                    return {
+                        "title": "⚠️ Conflito de Arquivos",
+                        "message": msg,
+                        "remediation": "Estes mods podem ser incompatíveis ou causar erros se carregados juntos. Verifique a ordem de carregamento."
+                    }
+        
         return None
 
     def _sort_mod_ids(self, mod_ids):
@@ -612,24 +923,73 @@ class PZModManager:
                     in_degree[before_id] += 1
             # 4. Tratamento de loadFirst e loadLast via Tiers (Fila de Prioridade)
         # Em vez de criar arestas, usaremos Tiers para desempatar a fila do Kahn.
-        def get_tier(mid):
+        def get_base_tier(mid):
             rules = self.sorting_rules.get(mid, {})
             if rules.get("loadFirst"): return 0
             if rules.get("loadLast"): return 2
             return 1 # Standard
             
-        # 5. Kahn's Algorithm com Tier-breaking (Estabilidade de Tiers)
+        effective_tier = {mid: get_base_tier(mid) for mid in nodes}
+        
+        # Herança de Tiers (Retropropagação)
+        # Se um mod (loadFirst - Tier 0) DEPENDE de outro mod (Tier 1), o Tier 0 é bloqueado pelo
+        # Tier 1 até que este saia da fila. Para que o grupo saia na frente juntos, a
+        # prioridade Tier 0 deve ser transferida para trás nas dependências!
+        tier0_nodes = [n for n in nodes if effective_tier[n] == 0]
+        if tier0_nodes:
+            rev_adj = defaultdict(list)
+            for u in adj:
+                for v in adj[u]:
+                    rev_adj[v].append(u)
+                    
+            queue_t0 = list(tier0_nodes)
+            visited_t0 = set(tier0_nodes)
+            while queue_t0:
+                curr = queue_t0.pop(0)
+                for prev in rev_adj[curr]:
+                    if effective_tier[prev] > 0:
+                        effective_tier[prev] = 0
+                        if prev not in visited_t0:
+                            visited_t0.add(prev)
+                            queue_t0.append(prev)
+
+        # 4.5. Herança de Tiers para loadLast (Tier 2)
+        # Se um mod normal DEPENDE de um Tier 2, o Tier 2 deve ser puxado para Tier 1.
+        # Mas na verdade o Project Zomboid raramente faz isso. 
+        # Geralmente queremos que o Tier 2 FIQUE no final mesmo que outros dependam dele.
+        # Porém, se um Tier 2 é DEPENDÊNCIA de um Tier 1, o Tier 1 não pode carregar ANTES do Tier 2.
+        # Isso cria o ciclo. Deixaremos o Kahn detectar o ciclo e o usuário resolver.
+
+        # 5. Kahn's Algorithm com Tier-breaking (Estabilidade de Tiers e Categorias)
         master_priority = {mid: i for i, mid in enumerate(self.master_order)}
+
+        cat_tier_cache = {}
+        for mid in nodes:
+            rules = self.sorting_rules.get(mid, {})
+            # Priorizar categoria definida na regra, senão usar o cache detectado
+            cat_name = rules.get("category")
+            if not cat_name or cat_name == "undefined":
+                m = next((mod for mod in self.mods_data if mod['id'] == mid), None)
+                cat_name = m.get('category') if m else "undefined"
+            
+            cat_tier_cache[mid] = CATEGORY_TIERS.get(cat_name, CATEGORY_TIERS["undefined"])
         
         # Fila inicial: mods com in-degree 0
         queue = [n for n in nodes if in_degree[n] == 0]
         sorted_list = []
         
         while queue:
-            # Ordenação Multicamadas:
-            # 1. Tier (First < Middle < Last)
-            # 2. Master Order (Gabarito Original)
-            queue.sort(key=lambda x: (get_tier(x), master_priority.get(x, 999999)))
+            # Ordenação Multicamadas (Tie-breakers):
+            # 1. Base Tier (loadFirst < Standard < loadLast) - Com herança loadFirst
+            # 2. Category Tier (Heurística de Conteúdo: Mapas primeiro, UI depois...)
+            # 3. Master Order (Gabarito Histórico / Cache de última ordem estável)
+            # 4. Ordem Alfabética (Determinismo Absoluto na API)
+            queue.sort(key=lambda x: (
+                effective_tier[x], 
+                cat_tier_cache.get(x, 99),
+                master_priority.get(x, 999999), 
+                x.lower()
+            ))
             
             u = queue.pop(0)
             sorted_list.append(u)
@@ -641,12 +1001,11 @@ class PZModManager:
         
         # 6. Detecção de Ciclos
         if len(sorted_list) != len(nodes):
-            # Encontrar quem sobrou (participa de um loop)
             remaining = [n for n in nodes if n not in sorted_list]
             return sorted_list + remaining, {
                 "title": "🔄 Loop de Regras Detectado",
-                "message": f"Há um conflito de lógica: {', '.join(remaining[:3])}. O sistema organizou o possível, mas verifique o sorting_rules.txt por ciclos.",
-                "remediation": "Pode ocorrer se um mod normal depender de um mod 'LoadLast'."
+                "message": f"Há um conflito de lógica envolvendo: {', '.join(remaining[:3])}.",
+                "remediation": "Verifique se um mod 'LoadFirst' depende de um mod comum, ou se há dependências circulares entre mods no mod.info ou sorting_rules.txt."
             }
         
         return sorted_list, None
@@ -679,13 +1038,11 @@ class PZModManager:
         return list(dict.fromkeys(known_ws + unknown_ws)) # Unique preservando ordem
 
     def _load_master_order(self):
-        # ... logic as before ...
         if os.path.exists(MASTER_ORDER_FILE):
             try:
                 with open(MASTER_ORDER_FILE, "r", encoding="utf-8") as f: self.master_order = json.load(f)
             except: self.master_order = []
 
     def _save_master_order(self):
-        # ... logic as before ...
         with open(MASTER_ORDER_FILE, "w", encoding="utf-8") as f:
             json.dump(self.master_order, f)

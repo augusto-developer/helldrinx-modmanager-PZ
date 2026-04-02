@@ -179,10 +179,11 @@ body {
   backdrop-filter: blur(12px);
   border: 1px solid var(--glass-border);
   border-radius: 20px;
-  overflow: hidden;
+  overflow: hidden; /* Crucial for image clipping */
   display: flex;
   transition: all 0.3s ease;
   margin-bottom: 12px;
+  align-items: stretch; /* Make image fill full height */
 }
 
 .mod-card:hover {
@@ -191,18 +192,19 @@ body {
 }
 
 .mod-poster {
-  width: 120px;
-  height: 120px;
+  flex-shrink: 0;
   object-fit: cover;
   background: var(--bg-tertiary);
+  border-radius: 0; /* Let mod-card overflow handle clipping */
 }
 
 .mod-info {
-  padding: 16px;
+  padding: 12px 20px;
   flex-grow: 1;
   display: flex;
   flex-direction: column;
   justify-content: center;
+  min-width: 0; /* Prevent overflow on flex children */
 }
 
 .mod-name {
@@ -226,12 +228,97 @@ body {
   border: 1px solid var(--glass-border);
 }
 
-/* Animations */
-@keyframes fadeIn {
-  from { opacity: 0; transform: translateY(10px); }
-  to { opacity: 1; transform: translateY(0); }
+/* Sidebar Dashboard */
+.sidebar-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(2, 6, 23, 0.6);
+  backdrop-filter: blur(4px);
+  z-index: 1000;
 }
 
-.fade-in {
-  animation: fadeIn 0.4s ease forwards;
+.sidebar {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 400px;
+  background: rgba(15, 23, 42, 0.95);
+  backdrop-filter: blur(20px);
+  border-left: 1px solid var(--glass-border);
+  box-shadow: -10px 0 30px rgba(0, 0, 0, 0.5);
+  padding: 32px;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  z-index: 1001;
+}
+
+.sidebar-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.sidebar-header h2 {
+  font-size: 1.5rem;
+  font-weight: 800;
+  color: var(--text-primary);
+}
+
+.issue-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  overflow-y: auto;
+  padding-right: 8px;
+}
+
+.issue-card {
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 16px;
+  padding: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  transition: all 0.2s ease;
+}
+
+.issue-card:hover {
+  background: rgba(255, 255, 255, 0.05);
+  transform: translateX(-4px);
+}
+
+.issue-title {
+  font-weight: 600;
+  font-size: 0.9rem;
+  color: #fff;
+  margin-bottom: 4px;
+}
+
+.issue-desc {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  margin-bottom: 12px;
+}
+
+.badge-count {
+  position: absolute;
+  top: -8px;
+  right: -8px;
+  background: #ef4444;
+  color: white;
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 10px;
+  font-weight: 800;
+  box-shadow: 0 0 10px rgba(239, 68, 68, 0.5);
+}
+
+.mod-highlight {
+  animation: flash 1s ease-out 2;
+}
+
+@keyframes flash {
+  0% { box-shadow: 0 0 0px var(--accent-blue-glow); }
+  50% { box-shadow: 0 0 40px var(--accent-blue); border-color: var(--accent-blue); }
+  100% { box-shadow: 0 0 0px var(--accent-blue-glow); }
 }

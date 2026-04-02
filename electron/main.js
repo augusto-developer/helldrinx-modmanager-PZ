@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog, shell } from 'electron';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { spawn } from 'child_process';
@@ -45,6 +45,16 @@ function createWindow() {
     return result.filePaths[0];
   });
 
+  ipcMain.handle('open-folder-native', async (event, folderPath) => {
+    try {
+      await shell.openPath(folderPath);
+      return true;
+    } catch (e) {
+      console.error('Failed to open path:', e);
+      return false;
+    }
+  });
+
   ipcMain.handle('select-file', async () => {
     const result = await dialog.showOpenDialog(mainWindow, {
       properties: ['openFile'],
@@ -58,13 +68,25 @@ function createWindow() {
 }
 
 function startPythonBackend() {
-  const pythonPath = path.join(__dirname, '../.venv/Scripts/python.exe');
-  const scriptPath = path.join(__dirname, '../src/backend_api.py');
+  const isDev = process.env.NODE_ENV === 'development';
+  let pythonPath;
+  let scriptPath;
+
+  if (app.isPackaged) {
+    // Production: Use the bundled executable
+    pythonPath = path.join(process.resourcesPath, 'backend', 'ModManagerEngine.exe');
+    scriptPath = ''; // No script needed for the compiled EXE
+  } else {
+    // Development: Use the virtual environment
+    pythonPath = path.join(__dirname, '../.venv/Scripts/python.exe');
+    scriptPath = path.join(__dirname, '../src/backend_api.py');
+  }
   
   console.log(`Starting Python backend: ${pythonPath} ${scriptPath}`);
   
-  pythonProcess = spawn(pythonPath, [scriptPath], {
-    cwd: path.join(__dirname, '..'),
+  const args = scriptPath ? [scriptPath] : [];
+  pythonProcess = spawn(pythonPath, args, {
+    cwd: app.isPackaged ? path.join(process.resourcesPath, 'backend') : path.join(__dirname, '..'),
     env: { ...process.env, PYTHONPATH: path.join(__dirname, '..') }
   });
 
@@ -86,29 +108,13 @@ app.whenReady().then(() => {
   createWindow();
 
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+    if (BrowserWindow.getAllWindows().length === 0) {
+      createWindow();
+    }
   });
 });
 
-// IPC handlers for selecting native files/folders
-ipcMain.handle('select-folder', async () => {
-  const result = await dialog.showOpenDialog(mainWindow, {
-    properties: ['openDirectory']
-  });
-  if (result.canceled) return null;
-  return result.filePaths[0];
-});
 
-ipcMain.handle('select-file', async () => {
-  const result = await dialog.showOpenDialog(mainWindow, {
-    properties: ['openFile'],
-    filters: [
-      { name: 'Configuration Files', extensions: ['ini'] }
-    ]
-  });
-  if (result.canceled) return null;
-  return result.filePaths[0];
-});
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();

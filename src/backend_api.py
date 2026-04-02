@@ -2,10 +2,11 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
-from src.logic.manager import PZModManager, TRASH_PATH
+from src.logic.manager import PZModManager, TRASH_PATH, SORTING_RULES_FILE
 import os
 import uvicorn
 import asyncio
+import urllib.parse
 
 app = FastAPI(title="HellDrinx - Tool (ModManager)")
 manager = PZModManager()
@@ -34,6 +35,9 @@ class ModAction(BaseModel):
     workshop_id: str
     name: str = ""
 
+class RawRulesAction(BaseModel):
+    content: str
+
 @app.get("/api/mods")
 async def get_mods():
     """Returns mods from JSON cache or workshop."""
@@ -49,10 +53,12 @@ async def get_mods():
             post_path = m['poster']
             if post_path.startswith(TRASH_PATH):
                 rel_path = os.path.relpath(post_path, TRASH_PATH).replace("\\", "/")
-                m['poster_url'] = f"/trash_images/{rel_path}"
+                safe_path = urllib.parse.quote(rel_path, safe='/')
+                m['poster_url'] = f"/trash_images/{safe_path}"
             elif post_path.startswith(manager.workshop_path):
                 rel_path = os.path.relpath(post_path, manager.workshop_path).replace("\\", "/")
-                m['poster_url'] = f"/workshop_images/{rel_path}"
+                safe_path = urllib.parse.quote(rel_path, safe='/')
+                m['poster_url'] = f"/workshop_images/{safe_path}"
         processed_mods.append(m)
         
     # 2. Sort mods to match servertest.ini order in the UI
@@ -130,6 +136,39 @@ async def update_settings(settings: SettingsAction):
     # We don't remount static files here as it requires app restart or complex logic,
     # but we update the internal paths.
     return {"status": "success"}
+
+@app.get("/api/sorting-rules/raw")
+async def get_raw_sorting_rules():
+    try:
+        if os.path.exists(SORTING_RULES_FILE):
+            with open(SORTING_RULES_FILE, "r", encoding="utf-8") as f:
+                return {"content": f.read()}
+        return {"content": ""}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/sorting-rules/raw")
+async def save_raw_sorting_rules(action: RawRulesAction):
+    try:
+        with open(SORTING_RULES_FILE, "w", encoding="utf-8") as f:
+            f.write(action.content)
+        # Notify manager to reload rules
+        manager._load_sorting_rules()
+        return {"status": "success"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/sorting-rules/open")
+async def open_sorting_rules():
+    try:
+        if not os.path.exists(SORTING_RULES_FILE):
+            with open(SORTING_RULES_FILE, "w", encoding="utf-8") as f:
+                f.write("")
+        if os.name == 'nt':
+            os.startfile(SORTING_RULES_FILE)
+        return {"status": "success"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/activate-all")
 async def activate_all():
