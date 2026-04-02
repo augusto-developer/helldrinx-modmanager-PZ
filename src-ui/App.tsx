@@ -55,7 +55,14 @@ const App: React.FC = () => {
   const [notification, setNotification] = useState<Notification | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [modalData, setModalData] = useState({ title: '', message: '', remediation: '' });
+  const [modalData, setModalData] = useState<{
+    title: string;
+    message: string;
+    remediation: string;
+    can_bypass?: boolean;
+    originalAction?: { endpoint: string; payload: any };
+  }>({ title: '', message: '', remediation: '' });
+
   const [settings, setSettings] = useState({ workshop_path: '', server_config_path: '' });
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
   const [rulesText, setRulesText] = useState('');
@@ -181,48 +188,43 @@ const App: React.FC = () => {
     }
   };
 
-  const handleAction = async (endpoint: string, payload: any) => {
+  const handleAction = async (endpoint: string, payload: any, bypass: boolean = false) => {
+    // Merge bypass flag into payload if provided
+    const finalPayload = bypass ? { ...payload, bypass_conflicts: true } : payload;
+
     // --- Optimistic UI Update ---
     if (endpoint === 'delete-specific') {
       setServerMods(prev => prev.filter(id => id !== payload.mod_id));
-    } else if (endpoint === 'activate-mod') {
+    } else if (endpoint === 'activate-mod' && !bypass) { 
+        // Only optimistic if not a bypass (bypass might fail for other reasons)
       setServerMods(prev => [...prev, payload.mod_id]);
-    } else if (endpoint === 'delete-volume') {
-      setServerMods(prev => prev.filter(id => id !== payload.mod_id));
-      setTrash(prev => {
-        if (!prev.some(t => t.id === payload.mod_id)) {
-           return [...prev, { id: payload.mod_id, workshop_id: payload.workshop_id, name: payload.name || payload.mod_id, require: [] } as any];
-        }
-        return prev;
-      });
-      setMods(prev => prev.filter(m => m.id !== payload.mod_id));
-    } else if (endpoint === 'restore') {
-      setTrash(prev => prev.filter(t => t.workshop_id !== payload.workshop_id));
-    } else if (endpoint === 'deactivate-all') {
-      setServerMods([]);
     }
+    // ... other optimistics ...
     // ----------------------------
 
     try {
       const resp = await fetch(`${API_BASE}/api/${endpoint}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
+        body: JSON.stringify(finalPayload),
       });
       const data = await resp.json();
 
       if (data.status === 'error') {
         await fetchMods(); // Revert optimistics
         setModalData({
-          title: data.title || "Conflito Detectado",
-          message: data.message || "Não foi possível realizar esta ação.",
-          remediation: data.remediation || "Tente resolver os conflitos manualmente."
+          title: data.title || "Conflict Detected",
+          message: data.message || "Unable to complete action.",
+          remediation: data.remediation || "Check requirements or manual rules.",
+          can_bypass: data.can_bypass || false,
+          originalAction: { endpoint, payload } // To retry with bypass
         });
         setModalOpen(true);
         return;
       }
 
       if (resp.ok) {
+        setModalOpen(false); // Close if successful bypass
         if (data.cleaned_up && data.cleaned_up.length > 0) {
           showNotification(`${data.cleaned_up.length} unnecessary dependencies were removed.`, 'info');
         }
@@ -356,41 +358,75 @@ const App: React.FC = () => {
 
   return (
     <div className="app-container">
-      {modalOpen && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center p-4"
-          style={{ background: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(8px)' }}
-        >
-          <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-md p-8 shadow-2xl overflow-hidden relative">
-            <div className="flex items-center gap-4 mb-6">
-              <div className="w-12 h-12 rounded-full bg-red-500/20 flex items-center justify-center text-red-500">
-                <AlertTriangle size={28} />
-              </div>
-              <h2 className="text-2xl font-bold text-white">{modalData.title}</h2>
-            </div>
-
-            <div className="space-y-4 mb-8">
-              <p className="text-slate-300 leading-relaxed">
-                {modalData.message}
-              </p>
-
-              <div className="bg-slate-800/50 p-4 rounded-xl border border-slate-700/50">
-                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">What to do?</p>
-                <p className="text-sm text-cyan-400">
-                  {modalData.remediation}
-                </p>
-              </div>
-            </div>
-
-            <button
-              onClick={() => setModalOpen(false)}
-              className="w-full py-4 bg-white text-slate-900 font-bold rounded-xl hover:bg-cyan-400 hover:text-slate-950 transition-all duration-300"
+      {/* Premium Notification Modal */}
+      <AnimatePresence>
+        {modalOpen && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center p-6"
+            style={{ background: 'rgba(2, 6, 23, 0.85)', backdropFilter: 'blur(12px)' }}
+          >
+            <motion.div
+              initial={{ scale: 0.9, y: 20, opacity: 0 }}
+              animate={{ scale: 1, y: 0, opacity: 1 }}
+              exit={{ scale: 0.9, y: 20, opacity: 0 }}
+              className="bg-slate-900 border border-slate-700/50 rounded-3xl w-full max-w-lg p-8 shadow-[0_0_50px_rgba(0,0,0,0.5)] overflow-hidden relative"
             >
-              Understood
-            </button>
-          </div>
-        </div>
-      )}
+              {/* Decorative background element */}
+              <div className="absolute -top-24 -right-24 w-48 h-48 bg-blue-500/10 rounded-full blur-3xl" />
+              <div className="absolute -bottom-24 -left-24 w-48 h-48 bg-red-500/10 rounded-full blur-3xl" />
+
+              <div className="relative z-10">
+                <div className="flex items-center gap-5 mb-8">
+                  <div className={`w-14 h-14 rounded-2xl flex items-center justify-center ${modalData.title.includes('Error') || modalData.title.includes('Incompatible') ? 'bg-red-500/20 text-red-500' : 'bg-amber-500/20 text-amber-500'}`}>
+                    <AlertTriangle size={32} />
+                  </div>
+                  <div>
+                    <h2 className="text-2xl font-black text-white tracking-tight">{modalData.title}</h2>
+                    <p className="text-slate-500 text-xs font-bold uppercase tracking-widest mt-1">System Alert</p>
+                  </div>
+                </div>
+
+                <div className="space-y-6 mb-10">
+                  <p className="text-slate-300 text-lg leading-relaxed font-medium">
+                    {modalData.message}
+                  </p>
+
+                  <div className="bg-slate-800/40 p-5 rounded-2xl border border-slate-700/30">
+                    <div className="flex items-center gap-2 mb-3">
+                      <Info size={14} className="text-blue-400" />
+                      <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Recommended Action</span>
+                    </div>
+                    <p className="text-sm text-blue-300/90 leading-normal">
+                      {modalData.remediation}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex flex-col gap-3">
+                  {(modalData as any).can_bypass && (
+                    <button
+                      onClick={() => handleAction((modalData as any).originalAction.endpoint, (modalData as any).originalAction.payload, true)}
+                      className="w-full py-4 bg-amber-500/10 text-amber-400 border border-amber-500/30 font-black rounded-2xl hover:bg-amber-500 hover:text-white transition-all duration-300 uppercase tracking-widest text-xs"
+                    >
+                      Proceed Anyway (Overwrite)
+                    </button>
+                  )}
+                  
+                  <button
+                    onClick={() => setModalOpen(false)}
+                    className="w-full py-4 bg-white text-slate-900 font-black rounded-2xl hover:bg-blue-500 hover:text-white transition-all duration-300 uppercase tracking-widest text-xs shadow-xl shadow-white/5"
+                  >
+                    Cancel & Go Back
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Header Section */}
       <header className="header">
@@ -671,19 +707,32 @@ const App: React.FC = () => {
                                     {isExpanded ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
                                   </button>
                                 )}
-                                <button
-                                  className="btn"
-                                  title="Abrir pasta local no Windows"
-                                  style={{ background: 'rgba(255,255,255,0.05)', color: '#94a3b8', borderRadius: '8px', padding: '8px' }}
-                                  onClick={() => {
-                                    const targetPath = mod.absolute_path || `${settings.workshop_path}\\${mod.workshop_id}\\mods\\${mod.id}`;
-                                    if (targetPath) {
-                                       (window as any).require('electron').ipcRenderer.invoke('open-folder-native', targetPath);
-                                    }
-                                  }}
-                                >
-                                  <FolderOpen size={16} />
-                                </button>
+                                  {mod.workshop_id && mod.workshop_id !== '0' && (
+                                    <button
+                                      className="btn"
+                                      title="Ver no Steam Workshop"
+                                      style={{ background: 'rgba(255,255,255,0.05)', color: '#3b82f6', borderRadius: '8px', padding: '8px' }}
+                                      onClick={() => {
+                                        const url = `steam://url/CommunityFilePage/${mod.workshop_id}`;
+                                        (window as any).require('electron').ipcRenderer.invoke('open-external-url', url);
+                                      }}
+                                    >
+                                      <ExternalLink size={16} />
+                                    </button>
+                                  )}
+                                  <button
+                                    className="btn"
+                                    title="Abrir pasta local no Windows"
+                                    style={{ background: 'rgba(255,255,255,0.05)', color: '#94a3b8', borderRadius: '8px', padding: '8px' }}
+                                    onClick={() => {
+                                      const targetPath = mod.absolute_path || `${settings.workshop_path}\\${mod.workshop_id}\\mods\\${mod.id}`;
+                                      if (targetPath) {
+                                         (window as any).require('electron').ipcRenderer.invoke('open-folder-native', targetPath);
+                                      }
+                                    }}
+                                  >
+                                    <FolderOpen size={16} />
+                                  </button>
                                 
                                 <button
                                   className="btn"
@@ -810,31 +859,44 @@ const App: React.FC = () => {
                                 )}
                               </div>
             
-                              <div style={{ padding: '12px 20px', display: 'flex', alignItems: 'center', gap: '12px' }}>
-                                {isCore && (
-                                  <button
-                                    className="btn"
-                                    onClick={() => setExpandedGroups(prev => ({ ...prev, [workshopId]: !isExpanded }))}
-                                    style={{ background: 'rgba(59, 130, 246, 0.1)', color: '#3b82f6', borderRadius: '8px', padding: '8px' }}
-                                  >
-                                    {isExpanded ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
-                                  </button>
-                                )}
-                                {!isTrash && (
-                                  <button
-                                    className="btn"
-                                    title="Abrir pasta local no Windows"
-                                    style={{ background: 'rgba(255,255,255,0.05)', color: '#94a3b8', borderRadius: '8px', padding: '8px' }}
-                                    onClick={() => {
-                                      const targetPath = mod.absolute_path || `${settings.workshop_path}\\${mod.workshop_id}\\mods\\${mod.id}`;
-                                      if (targetPath) {
-                                         (window as any).require('electron').ipcRenderer.invoke('open-folder-native', targetPath);
-                                      }
-                                    }}
-                                  >
-                                    <FolderOpen size={16} />
-                                  </button>
-                                )}
+                                <div style={{ padding: '12px 20px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                  {isCore && (
+                                    <button
+                                      className="btn"
+                                      onClick={() => setExpandedGroups(prev => ({ ...prev, [workshopId]: !isExpanded }))}
+                                      style={{ background: 'rgba(59, 130, 246, 0.1)', color: '#3b82f6', borderRadius: '8px', padding: '8px' }}
+                                    >
+                                      {isExpanded ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
+                                    </button>
+                                  )}
+                                  {mod.workshop_id && mod.workshop_id !== '0' && (
+                                    <button
+                                      className="btn"
+                                      title="Ver no Steam Workshop"
+                                      style={{ background: 'rgba(255,255,255,0.05)', color: '#3b82f6', borderRadius: '8px', padding: '8px' }}
+                                      onClick={() => {
+                                        const url = `steam://url/CommunityFilePage/${mod.workshop_id}`;
+                                        (window as any).require('electron').ipcRenderer.invoke('open-external-url', url);
+                                      }}
+                                    >
+                                      <ExternalLink size={16} />
+                                    </button>
+                                  )}
+                                  {!isTrash && (
+                                    <button
+                                      className="btn"
+                                      title="Abrir pasta local no Windows"
+                                      style={{ background: 'rgba(255,255,255,0.05)', color: '#94a3b8', borderRadius: '8px', padding: '8px' }}
+                                      onClick={() => {
+                                        const targetPath = mod.absolute_path || `${settings.workshop_path}\\${mod.workshop_id}\\mods\\${mod.id}`;
+                                        if (targetPath) {
+                                           (window as any).require('electron').ipcRenderer.invoke('open-folder-native', targetPath);
+                                        }
+                                      }}
+                                    >
+                                      <FolderOpen size={16} />
+                                    </button>
+                                  )}
                                 
                                 {!isTrash ? (
                                   <button

@@ -9,7 +9,7 @@ script_path = os.path.join(project_dir, 'src', 'backend_api.py')
 
 PyInstaller.__main__.run([
     script_path,
-    '--name=backend',
+    '--name=ModManagerEngine',
     '--onedir',
     '--windowed',
     '--noconfirm',

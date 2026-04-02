@@ -34,6 +34,7 @@ class ModAction(BaseModel):
     mod_id: str = ""
     workshop_id: str
     name: str = ""
+    bypass_conflicts: bool = False
 
 class RawRulesAction(BaseModel):
     content: str
@@ -82,18 +83,16 @@ async def get_mods():
 
 @app.post("/api/sync")
 async def sync_mods():
-    """Starts a full folder sync."""
     try:
         # Run heavy scan in thread to avoid blocking the API
-        await asyncio.to_thread(manager.scan_workshop)
-        await asyncio.to_thread(manager.load_server_config)
+        await asyncio.to_thread(manager.sync_servertest_ini)
         return {"status": "success", "message": "Synchronization completed"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/activate-mod")
 async def activate_mod(action: ModAction):
-    result = manager.activate_mod(action.mod_id)
+    result = manager.activate_mod(action.mod_id, action.bypass_conflicts)
     if result.get("status") == "success":
         return result
     return result

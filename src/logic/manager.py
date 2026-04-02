@@ -45,6 +45,7 @@ class PZModManager:
     def __init__(self):
         self.mods_data = [] 
         self.server_mods = [] 
+        self.server_workshop_ids = []
         self.total_mod_folders = 0
         self.trash_data = [] 
         self.master_order = [] 
@@ -54,11 +55,19 @@ class PZModManager:
         self.workshop_path = DEFAULT_WORKSHOP
         self.server_config_path = DEFAULT_SERVER_INI
         self.load_settings()
+        self.load_server_config() # Initial load of server config data
 
         self._load_master_order()
         self._load_trash_metadata()
         self._load_sorting_rules()
         self.load_server_config()
+
+    def sync_servertest_ini(self):
+        """Consolidates workshop scanning and server config loading."""
+        self.scan_workshop()
+        self.load_server_config()
+        self.load_cache() # Ensure memory is updated
+        return True
 
     def load_settings(self):
         if os.path.exists(SETTINGS_FILE):
@@ -106,18 +115,14 @@ class PZModManager:
         for wid in workshop_ids:
             try:
                 w_path = os.path.join(self.workshop_path, wid)
-                has_mod = False
                 mods_dir = os.path.join(w_path, "mods")
                 if os.path.exists(mods_dir):
-                    for mod_folder in os.listdir(mods_dir):
-                        mod_path = os.path.join(mods_dir, mod_folder)
-                        if os.path.isdir(mod_path):
-                            has_mod = True
-                            self._parse_mod_folder(mod_path, wid)
-                if has_mod: 
-                    self.total_mod_folders += 1
-                else:
-                    self.log(f"Warning: Workshop ID {wid} does not contain a valid /mods folder.")
+                    # Deep scan: find ALL mod.info files in this workshop item
+                    # We store them by ID to handle versioning (pick 42 over common if both exist)
+                    wid_mods = self._recursive_find_mods(mods_dir, wid)
+                    if wid_mods:
+                        self.total_mod_folders += 1
+                        # The results are already appended to self.mods_data within the helper
             except Exception as e:
                 self.log(f"CRITICAL ERROR in workshop_id {wid}: {str(e)}")
             
@@ -147,45 +152,54 @@ class PZModManager:
         self.save_cache()
         return None
 
-    def _parse_mod_folder(self, mod_path, workshop_id):
-        mod_folder = os.path.basename(mod_path)
-        mod_id, mod_name, poster_path = mod_folder, mod_folder, None
+    def _peek_mod_id_and_score(self, info_path):
+        """Quickly peeks mod.info to get ID and version score without full parsing."""
+        try:
+            with open(info_path, "r", encoding="utf-8", errors="ignore") as f:
+                content = f.read()
+                i_match = re.search(r"^id=(.*)", content, re.MULTILINE)
+                if i_match:
+                    mod_id = i_match.group(1).strip()
+                    # Calculate score based on folder name
+                    score = 0.0
+                    parent_name = os.path.basename(os.path.dirname(info_path))
+                    if parent_name == "common": score = 0.5
+                    else:
+                        ver_match = re.search(r"(\d+\.?\d*)", parent_name)
+                        if ver_match: score = float(ver_match.group(1))
+                    return mod_id, score
+        except: pass
+        return None, 0.0
+
+    def _recursive_find_mods(self, mods_dir, workshop_id):
+        """Deeply searches for all mod.info files and processes them."""
+        found_any = False
+        # mod_id -> (score, info_path, base_path)
+        best_versions = {}
+        
+        for root, dirs, files in os.walk(mods_dir):
+            if "mod.info" in files:
+                info_path = os.path.join(root, "mod.info")
+                m_id, score = self._peek_mod_id_and_score(info_path)
+                if m_id:
+                    # Update if better version found per mod_id
+                    if m_id not in best_versions or score > best_versions[m_id][0]:
+                        best_versions[m_id] = (score, info_path, root)
+        
+        for m_id, (score, info_path, base_path) in best_versions.items():
+            self._process_single_mod_info(info_path, m_id, workshop_id, base_path)
+            found_any = True
+        return found_any
+
+    def _process_single_mod_info(self, mod_info_path, mod_id, workshop_id, base_search_path):
+        """Fully parses a specific mod.info and adds it to mods_data."""
+        mod_name = os.path.basename(os.path.dirname(os.path.dirname(mod_info_path))) # Fallback
+        if mod_name == "mods": mod_name = mod_id # In case of root mods
+        
+        poster_path = None
         requirements = []
         incompatible = []
         load_after = []
-        
-        # 1. Descoberta Inteligente do mod.info (Priorizando Versões)
-        found_infos = []
-        # Checar raiz
-        if os.path.exists(os.path.join(mod_path, "mod.info")):
-            found_infos.append(("", 0.0))
-            
-        # Checar subpastas (common, 41, 42, 42.x, etc.)
-        if os.path.isdir(mod_path):
-            try:
-                for sub in os.listdir(mod_path):
-                    p = os.path.join(mod_path, sub, "mod.info")
-                    if os.path.exists(p):
-                        if sub == "common":
-                            found_infos.append((sub, 0.5))
-                        else:
-                            # Tentar extrair versão numérica (ex: 42.15 -> 42.15)
-                            ver_match = re.search(r"(\d+\.?\d*)", sub)
-                            if ver_match:
-                                found_infos.append((sub, float(ver_match.group(1))))
-                            else:
-                                found_infos.append((sub, 0.1))
-            except: pass
-
-        mod_info_path = None
-        base_search_path = mod_path
-
-        if found_infos:
-            # Ordenar pela maior versão (42.15 > 42.0 > 0.5 (common) > 0.0 (raiz))
-            found_infos.sort(key=lambda x: x[1], reverse=True)
-            best_sub = found_infos[0][0]
-            mod_info_path = os.path.join(mod_path, best_sub, "mod.info") if best_sub else os.path.join(mod_path, "mod.info")
-            base_search_path = os.path.join(mod_path, best_sub) if best_sub else mod_path
         
         # 2. Leitura de Metadados
         if mod_info_path and os.path.exists(mod_info_path):
@@ -193,7 +207,6 @@ class PZModManager:
                 with open(mod_info_path, "r", encoding="utf-8", errors="ignore") as f:
                     content = f.read()
                     n_match = re.search(r"^name=(.*)", content, re.MULTILINE)
-                    i_match = re.search(r"^id=(.*)", content, re.MULTILINE)
                     p_match = re.search(r"^poster=(.*)", content, re.MULTILINE)
                     r_match = re.search(r"^require=(.*)", content, re.MULTILINE)
                     d_match = re.search(r"^dependency=(.*)", content, re.MULTILINE) # Suporte adicional
@@ -201,7 +214,6 @@ class PZModManager:
                     lma_match = re.search(r"^loadModAfter=(.*)", content, re.MULTILINE)
                     
                     if n_match: mod_name = n_match.group(1).strip()
-                    if i_match: mod_id = i_match.group(1).strip()
                     if p_match:
                         p_abs = os.path.join(base_search_path, p_match.group(1).strip())
                         if os.path.exists(p_abs): poster_path = p_abs
@@ -232,23 +244,6 @@ class PZModManager:
                 if os.path.exists(fallback_path):
                     poster_path = fallback_path
                     break
-
-        if not poster_path:
-            try:
-                for sub_nome in os.listdir(mod_path):
-                    sub_lower = sub_nome.lower()
-                    if sub_lower.startswith("42") or sub_lower == "common":
-                        sub_dir = os.path.join(mod_path, sub_nome)
-                        if os.path.isdir(sub_dir):
-                            for fallback in ["poster.png", "preview.png", "icon.png"]:
-                                fallback_path = os.path.join(sub_dir, fallback)
-                                if os.path.exists(fallback_path):
-                                    poster_path = fallback_path
-                                    break
-                    if poster_path:
-                        break
-            except Exception:
-                pass
 
         # --- HEURÍSTICA DE CATEGORIZAÇÃO (MLOS) ---
         def _check_exists(paths):
@@ -290,6 +285,34 @@ class PZModManager:
         if category == "undefined": category = "other"
         # ------------------------------------------
 
+        # --- EXHAUSTIVE MAP DETECTION ---
+        extracted_maps = []
+        # --- EXHAUSTIVE MAP DETECTION ---
+        extracted_maps = []
+        try:
+            # We search in the base folder AND sibling version folders (42, common etc.)
+            search_folders = [base_search_path]
+            
+            # If we are in a versioned subfolder (like 42 or common), check siblings
+            parent_dir = os.path.dirname(base_search_path)
+            # Only if the parent is within the "mods/" structure
+            if os.path.exists(parent_dir) and "mods" in parent_dir:
+                search_folders.append(parent_dir)
+                for sub in ["common", "42", "41", "42.0", "42.1"]:
+                    sub_p = os.path.join(parent_dir, sub)
+                    if os.path.exists(sub_p) and os.path.isdir(sub_p):
+                        search_folders.append(sub_p)
+
+            for folder in set(search_folders):
+                maps_root = os.path.join(folder, "media", "maps")
+                if os.path.exists(maps_root):
+                    for sub_map in os.listdir(maps_root):
+                        if os.path.isdir(os.path.join(maps_root, sub_map)) and sub_map not in extracted_maps:
+                            extracted_maps.append(sub_map)
+        except: pass
+        # --------------------------------
+        # --------------------------------
+
         # --- ANÁLISE PROFUNDA (Critical Files) ---
         media_files = []
         try:
@@ -319,7 +342,8 @@ class PZModManager:
             "absolute_path": base_search_path,
             "category": category,
             "cat_enum": cat_enum,
-            "media_files": media_files
+            "media_files": media_files,
+            "maps": extracted_maps
         })
 
     def save_cache(self):
@@ -398,7 +422,67 @@ class PZModManager:
         with open(self.server_config_path, "w", encoding="utf-8") as f: 
             f.write(content)
 
-    def activate_mod(self, mod_id):
+    def _update_map_line(self, content_str, active_mods_list):
+        """Discovers map folders for active mods and updates the Map= line."""
+        maps_to_include = []
+        for mid in active_mods_list:
+            minfo = next((m for m in self.mods_data if m['id'] == mid), None)
+            if minfo and minfo.get("maps"):
+                maps_to_include.extend(minfo["maps"])
+        
+        # Unique maps only (PZ crashes on duplicates)
+        maps_to_include = list(dict.fromkeys(maps_to_include))
+
+        # Ensure Muldraugh, KY is at the end (mandatory for PZ)
+        if "Muldraugh, KY" not in maps_to_include:
+            maps_to_include.append("Muldraugh, KY")
+        else:
+            # Move it to last
+            maps_to_include.remove("Muldraugh, KY")
+            maps_to_include.append("Muldraugh, KY")
+
+        regex = r"^Map=(.*)$"
+        return re.sub(regex, f"Map={';'.join(maps_to_include)}", content_str, flags=re.MULTILINE)
+
+    def sync_servertest_ini(self):
+        """Deep scan workshop and synchronize all config lines (Mods, Workshop, Maps)."""
+        self.scan_workshop()
+        self.load_server_config()
+        
+        if not os.path.exists(self.server_config_path):
+            return {"status": "error", "message": "Config file not found"}
+            
+        try:
+            with open(self.server_config_path, "r", encoding="utf-8", errors="ignore") as f:
+                content = f.read()
+                
+            # Perform re-sorting
+            sorted_mods, error = self._sort_mod_ids(self.server_mods)
+            
+            # Update all critical lines
+            content = re.sub(r"^Mods=.*$", f"Mods={';'.join(sorted_mods)}", content, flags=re.MULTILINE)
+            
+            # Build workshop items list based on current active mods + any existing IDs
+            # This ensures we don't lose IDs that might not have a mod_id detected yet
+            wids = set(self.server_workshop_ids)
+            for mid in sorted_mods:
+                minfo = next((m for m in self.mods_data if m['id'] == mid), None)
+                if minfo:
+                    wids.add(minfo['workshop_id'])
+            
+            content = re.sub(r"^WorkshopItems=.*$", f"WorkshopItems={';'.join(self._sort_workshop_ids(list(wids), sorted_mods))}", content, flags=re.MULTILINE)
+            content = self._update_map_line(content, sorted_mods)
+            
+            with open(self.server_config_path, "w", encoding="utf-8") as f:
+                f.write(content)
+                
+            self.load_server_config()
+            return {"status": "success", "message": "Sync completed successfully!", "error": error}
+        except Exception as e:
+            print(f"Sync Error: {e}")
+            return {"status": "error", "message": str(e)}
+
+    def activate_mod(self, mod_id, bypass_conflicts=False):
         if not os.path.exists(self.server_config_path): return {"status": "error", "message": "servertest.ini not found"}
         
         # 1. Obter Grafo de Dependências
@@ -421,18 +505,10 @@ class PZModManager:
                     queue.append(r)
 
         # 1.5. Ativação de "Mods Irmãos" (Mesmo Workshop)
-        # Se um mod na MESMA pasta do workshop requer qualquer mod que já vamos ativar,
-        # ou se o mod atual requer um irmão, ativamos o conjunto necessário.
-        
-        # Descobrir o Workshop ID do mod que iniciou a ativação
         main_wid = next((m['workshop_id'] for m in self.mods_data if m['id'] == mod_id), None)
         
         if main_wid:
-            # Varrer todos os mods que pertencem a este Workshop
             brothers = [m for m in self.mods_data if m['workshop_id'] == main_wid]
-            
-            # Se um irmão requer qualquer coisa da nossa lista de ativação atual, ele entra.
-            # (Ex: ArmoredVestsPATCH requer ArmoredVestsWORKSHOP)
             for b in brothers:
                 bid = b['id']
                 if bid not in to_activate:
@@ -440,15 +516,14 @@ class PZModManager:
                     if any(r in to_activate for r in breqs):
                         self.log(f"Auto-activating brother mod: {bid} (Patch/Requirement found in same folder)")
                         to_activate.add(bid)
-                        # Re-processar dependências deste novo irmão se necessário
-                        # (Geralmente patches não têm requerimentos novos além do base)
         
         to_activate_list = list(to_activate)
         
-        # 2. Verificar conflitos ANTES de ativar
-        for mid in to_activate:
-            conflict = self.check_conflicts(mid, self.server_mods)
-            if conflict: return {"status": "error", **conflict}
+        # 2. Verificar conflitos ANTES de ativar (Skip if bypass_conflicts is True)
+        if not bypass_conflicts:
+            for mid in to_activate:
+                conflict = self.check_conflicts(mid, self.server_mods)
+                if conflict: return {"status": "error", **conflict}
 
         # 3. Atualizar servertest.ini
         try:
@@ -466,33 +541,29 @@ class PZModManager:
                     if item not in new_items:
                         new_items.append(item)
                 
-                # AQUI ESTÁ O SEGREDO: SEMPRE RE-ORDENAR TUDO
                 sorted_total, error = self._sort_mod_ids(new_items)
-                if error:
-                    # Se houver erro de ciclo, retornamos a lista sem ordem mas com os novos
-                    return re.sub(regex, f"{prefix}={';'.join(new_items)}", content_str, flags=re.MULTILINE), error
-                
-                return re.sub(regex, f"{prefix}={';'.join(sorted_total)}", content_str, flags=re.MULTILINE), None
+                final_ordered = sorted_total if not error else new_items
+                return re.sub(regex, f"{prefix}={';'.join(final_ordered)}", content_str, flags=re.MULTILINE), error
 
-            # Ativar Mods (IDs internos) - ORDENADO POR REGRAS
-            sorted_to_activate, error = self._sort_mod_ids(to_activate)
-            if error: return {"status": "error", **error}
-            
-            content, err_mods = update_line("Mods", to_activate, content)
+            # Ativar Mods (IDs internos)
+            content, err_mods = update_line("Mods", to_activate_list, content)
             if err_mods: return {"status": "error", **err_mods}
             
-            # Ativar Workshop IDs correspondentes
-            # Pegamos a lista final de mods que resultou do update_line
+            # Recalcular WorkshopItems e Map baseados na lista final
             regex_mods = r"^Mods=(.*)$"
             match_m = re.search(regex_mods, content, re.MULTILINE)
             if match_m:
-                final_mod_ids = match_m.group(1).split(";")
+                final_mod_ids = [m for m in match_m.group(1).split(";") if m.strip()]
                 wids_to_add = []
                 for mid in final_mod_ids:
                     mod_info = next((m for m in self.mods_data if m['id'] == mid), None)
                     if mod_info: wids_to_add.append(mod_info['workshop_id'])
                 
+                # Atualizar WorkshopItems
                 content = re.sub(r"^WorkshopItems=.*$", f"WorkshopItems={';'.join(self._sort_workshop_ids(wids_to_add, final_mod_ids))}", content, flags=re.MULTILINE)
+                
+                # AUTO-UPDATE MAPS!
+                content = self._update_map_line(content, final_mod_ids)
             
             with open(self.server_config_path, "w", encoding="utf-8") as f: f.write(content)
             self.load_server_config()
@@ -506,59 +577,52 @@ class PZModManager:
             with open(self.server_config_path, "r", encoding="utf-8", errors="ignore") as f:
                 content = f.read()
 
-            # Descobrir dependências antes de remover
             dep_status = self.get_dependency_status()
             potential_orphans = dep_status.get(mod_id, {}).get("depends_on", [])
 
-            # Remover o Mod ID principal
             regex_mods = r"^Mods=(.*)$"
             match = re.search(regex_mods, content, re.MULTILINE)
             if match:
-                items = match.group(1).split(";")
-                items = [i for i in items if i.strip() and i != mod_id]
-                content = re.sub(regex_mods, f"Mods={';'.join(items)}", content, flags=re.MULTILINE)
-
-            # Verificação recursiva de limpeza (Smart Cleanup)
-            # Removemos a dependência apenas se ninguém mais ativo precisar dela
-            current_active = set(items) if match else set()
-            cleaned_up_ids = []
-            
-            check_queue = list(potential_orphans)
-            while check_queue:
-                dep_id = check_queue.pop(0)
-                # Alguém ATIVO depende deste cara?
-                is_needed = False
-                for other_active in current_active:
-                    if dep_id in dep_status.get(other_active, {}).get("depends_on", []):
-                        is_needed = True
-                        break
+                items = [i for i in match.group(1).split(";") if i.strip() and i != mod_id]
+                current_active = set(items)
+                cleaned_up_ids = []
                 
-                if not is_needed and dep_id not in cleaned_up_ids:
-                    # Pode remover!
-                    cleaned_up_ids.append(dep_id)
-                    current_active.discard(dep_id)
-                    # E checar o que ESTE cara dependia
-                    check_queue.extend(dep_status.get(dep_id, {}).get("depends_on", []))
-            
-            # Atualizar linha final de mods com limpezas - ORDENADO POR REGRAS
-            ordered_active, error = self._sort_mod_ids(list(current_active))
-            # Se houver erro de ciclo aqui, apenas removemos (não bloqueamos a deleção)
-            final_list = ordered_active if not error else list(current_active)
-            content = re.sub(regex_mods, f"Mods={';'.join(final_list)}", content, flags=re.MULTILINE)
+                check_queue = list(potential_orphans)
+                while check_queue:
+                    dep_id = check_queue.pop(0)
+                    is_needed = False
+                    for other_active in current_active:
+                        if dep_id in dep_status.get(other_active, {}).get("depends_on", []):
+                            is_needed = True
+                            break
+                    
+                    if not is_needed and dep_id not in cleaned_up_ids:
+                        cleaned_up_ids.append(dep_id)
+                        current_active.discard(dep_id)
+                        check_queue.extend(dep_status.get(dep_id, {}).get("depends_on", []))
+                
+                ordered_active, error = self._sort_mod_ids(list(current_active))
+                final_list = ordered_active if not error else list(current_active)
+                content = re.sub(regex_mods, f"Mods={';'.join(final_list)}", content, flags=re.MULTILINE)
 
-            # Verificar Workshop IDs que sobraram
-            remaining_wids = set()
-            for mid in current_active:
-                minfo = next((m for m in self.mods_data if m['id'] == mid), None)
-                if minfo: remaining_wids.add(minfo['workshop_id'])
-            
-            regex_w = r"^WorkshopItems=(.*)$"
-            match_w = re.search(regex_w, content, re.MULTILINE)
-            if match_w:
-                current_wids = match_w.group(1).split(";")
-                # Filtrar e Ordenar Workshop IDs
-                new_wids = [w for w in current_wids if w.strip() and (w in remaining_wids)]
-                content = re.sub(regex_w, f"WorkshopItems={';'.join(self._sort_workshop_ids(new_wids, final_list))}", content, flags=re.MULTILINE)
+                # Update WorkshopItems
+                remaining_wids = set()
+                for mid in final_list:
+                    minfo = next((m for m in self.mods_data if m['id'] == mid), None)
+                    if minfo: remaining_wids.add(minfo['workshop_id'])
+                
+                content = re.sub(r"^WorkshopItems=.*$", f"WorkshopItems={';'.join(self._sort_workshop_ids(list(remaining_wids), final_list))}", content, flags=re.MULTILINE)
+                
+                # AUTO-UPDATE MAPS!
+                content = self._update_map_line(content, final_list)
+
+                with open(self.server_config_path, "w", encoding="utf-8") as f: f.write(content)
+                self.save_cache()
+                self.load_server_config()
+                return {"status": "success", "cleaned_up": cleaned_up_ids}
+        except Exception as e: 
+            print(f"Error removing mod: {e}")
+            return False
 
             # Se o workshop principal não tem mais nenhum mod ativo, manda pra lixeira
             # DESATIVADO POR SEGURANÇA: O usuário reportou mods sumindo
@@ -846,20 +910,20 @@ class PZModManager:
         return conflicts
 
     def check_conflicts(self, mod_id, active_mods):
-        """Verifica se o mod a ser ativado colide com algum já ativo (ID ou Arquivo)."""
+        """Checks if the mod to be activated conflicts with any already active (ID or File)."""
         rules = self.sorting_rules.get(mod_id, {})
         incompatible = rules.get("incompatibleMods", [])
         
-        # 1. Conflitos de Regra (mod.info / manual)
+        # 1. Rule Conflicts (mod.info / manual)
         rule_conflicts = [m for m in incompatible if m in active_mods]
         if rule_conflicts:
             return {
-                "title": "🔴 Mods Incompatíveis (Regras)",
-                "message": f"O Mod {mod_id} é incompatíve com: {', '.join(rule_conflicts)}.",
-                "remediation": "Desative os incompatíveis antes de ativar este."
+                "title": "🔴 Incompatible Mods (Rules)",
+                "message": f"Mod {mod_id} is explicitly incompatible with: {', '.join(rule_conflicts)}.",
+                "remediation": "Deactivate conflicting mods before activating this one."
             }
         
-        # 2. Conflitos de Arquivo Físico (Análise Profunda)
+        # 2. Physical File Conflicts (Deep Analysis)
         m_info = next((m for m in self.mods_data if m['id'] == mod_id), None)
         if m_info and m_info.get("media_files"):
             current_files = set(m_info["media_files"])
@@ -867,19 +931,22 @@ class PZModManager:
                 other_info = next((m for m in self.mods_data if m['id'] == other_id), None)
                 if not other_info: continue
                 
-                # Interseção de arquivos
+                # Intersect files
                 overlap = current_files.intersection(set(other_info.get("media_files", [])))
                 if overlap:
-                    # Mostrar apenas os 3 primeiros para não poluir
+                    # Show only first 3 to avoid clutter
                     list_overlap = list(overlap)
-                    msg = f"Conflito de Arquivos com {other_id}! Ambos modificam: {', '.join(list_overlap[:3])}"
-                    if len(list_overlap) > 3: msg += f" (e mais {len(list_overlap)-3} arquivos)"
+                    msg = f"File Conflict with {other_id}! Both modify: {', '.join(list_overlap[:3])}"
+                    if len(list_overlap) > 3: msg += f" (and {len(list_overlap)-3} more files)"
                     
                     return {
-                        "title": "⚠️ Conflito de Arquivos",
+                        "title": "⚠️ File Conflict Detected",
                         "message": msg,
-                        "remediation": "Estes mods podem ser incompatíveis ou causar erros se carregados juntos. Verifique a ordem de carregamento."
+                        "remediation": "These mods modify the same files and may cause errors. Proceed only if you know one should override the other.",
+                        "can_bypass": True # Flag to show the 'Proceed Anyway' button
                     }
+        
+        return None
         
         return None
 

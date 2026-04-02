@@ -18,5 +18,8 @@ src/trash/
 
 # Build and Electron
 dist/
+dist-electron/
+dist-python/
 build/
+build-python/
 out/

@@ -9,6 +9,46 @@ const __dirname = path.dirname(__filename);
 let mainWindow;
 let pythonProcess;
 
+// IPC handlers for selecting native files/folders
+ipcMain.handle('select-folder', async () => {
+    const result = await dialog.showOpenDialog(mainWindow, {
+        properties: ['openDirectory']
+    });
+    if (result.canceled) return null;
+    return result.filePaths[0];
+});
+
+ipcMain.handle('open-folder-native', async (event, folderPath) => {
+    try {
+        await shell.openPath(folderPath);
+        return true;
+    } catch (e) {
+        console.error('Failed to open path:', e);
+        return false;
+    }
+});
+
+ipcMain.handle('open-external-url', async (event, url) => {
+    try {
+        await shell.openExternal(url);
+        return true;
+    } catch (e) {
+        console.error('Failed to open external URL:', e);
+        return false;
+    }
+});
+
+ipcMain.handle('select-file', async () => {
+    const result = await dialog.showOpenDialog(mainWindow, {
+        properties: ['openFile'],
+        filters: [
+            { name: 'Configuration Files', extensions: ['ini'] }
+        ]
+    });
+    if (result.canceled) return null;
+    return result.filePaths[0];
+});
+
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1200,
@@ -34,36 +74,6 @@ function createWindow() {
 
   mainWindow.on('closed', () => {
     mainWindow = null;
-  });
-
-  // IPC handlers for selecting native files/folders
-  ipcMain.handle('select-folder', async () => {
-    const result = await dialog.showOpenDialog(mainWindow, {
-      properties: ['openDirectory']
-    });
-    if (result.canceled) return null;
-    return result.filePaths[0];
-  });
-
-  ipcMain.handle('open-folder-native', async (event, folderPath) => {
-    try {
-      await shell.openPath(folderPath);
-      return true;
-    } catch (e) {
-      console.error('Failed to open path:', e);
-      return false;
-    }
-  });
-
-  ipcMain.handle('select-file', async () => {
-    const result = await dialog.showOpenDialog(mainWindow, {
-      properties: ['openFile'],
-      filters: [
-        { name: 'Configuration Files', extensions: ['ini'] }
-      ]
-    });
-    if (result.canceled) return null;
-    return result.filePaths[0];
   });
 }
 
@@ -104,8 +114,8 @@ function startPythonBackend() {
 }
 
 app.whenReady().then(() => {
-  startPythonBackend();
   createWindow();
+  startPythonBackend();
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {

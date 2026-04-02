@@ -18,6 +18,21 @@ loadAfter=SpnOpenCloth
 incompatibleMods=1VCESTANDARDSpongie
 category=code
 
+[2256623447/firearmmod]
+incompatibleMods=2256623447/firearmmodbeta,2256623447/firearmmodvanilla
+category=code
+
+[2256623447/firearmmodbeta]
+incompatibleMods=2256623447/firearmmod,2256623447/firearmmodvanilla,B42RainsFirearmsAndGunParts
+category=code
+
+[2256623447/firearmmodvanilla]
+incompatibleMods=2256623447/firearmmod,2256623447/firearmmodbeta
+category=code
+
+[2392676812/lgd_antibodies]
+category=ui
+
 [49powerWagon]
 loadAfter=damnlib
 category=code
@@ -39,6 +54,10 @@ loadAfter=damnlib
 category=code
 
 [66pontiacLeMans]
+loadAfter=damnlib
+category=code
+
+[67commando]
 loadAfter=damnlib
 category=code
 
@@ -415,6 +434,12 @@ category=clothes
 incompatibleMods=Authentic Z - Current,AuthenticZBackpacks+
 category=map
 
+[B42FRUsedCarsAnimAlpha]
+category=vehicle
+
+[B42FRUsedCarsAnimTitle]
+category=ui
+
 [B42Horticulture]
 category=other
 
@@ -606,6 +631,18 @@ category=other
 loadAfter=RedRacer,fhqExpVehSpawn
 category=map
 
+[firearmmod]
+incompatibleMods=firearmmodbeta,firearmmodvanilla
+category=code
+
+[firearmmodbeta]
+incompatibleMods=firearmmod,firearmmodvanilla,B42RainsFirearmsAndGunParts
+category=code
+
+[firearmmodvanilla]
+incompatibleMods=firearmmod,firearmmodbeta
+category=code
+
 [FirstAidVHSTapes]
 category=translation
 
@@ -635,6 +672,18 @@ category=translation
 [FunctionalCarLift]
 category=other
 
+[GanydeBielovzki's Frockin Splendor!]
+category=code
+
+[GanydeBielovzki's Frockin Splendor! Vol.2]
+incompatibleMods=Retrad_'s Kinky Clothes
+category=code
+
+[GanydeBielovzki's Frockin Splendor! Vol.3]
+loadAfter=GanydeBielovzki's Frockin Splendor! Vol.2
+incompatibleMods=Retrad_'s Kinky Clothes
+category=code
+
 [GenStreetlightRestore]
 category=translation
 
@@ -659,6 +708,9 @@ category=code
 [HBACVFES]
 loadAfter=HBAC,HBVCEFb42,VFExpansion2Reduxb42
 category=code
+
+[HBVCEFb42]
+category=tweaks
 
 [HelicopterEventExpansionFramework]
 category=tweaks
@@ -765,6 +817,9 @@ category=translation
 [JustHideDebugMenu]
 incompatibleMods=HideDebugMenu
 category=other
+
+[Karas Zone Selector API]
+category=tweaks
 
 [KATTAJ1_ClothesCore]
 category=code
@@ -977,6 +1032,9 @@ category=code
 [ReloadSpeedFix]
 category=other
 
+[Roccos_Tiles]
+category=other
+
 [RVInteriorExpansion]
 loadAfter=PROJECTRVInterior42
 category=code
@@ -1024,6 +1082,21 @@ category=other
 
 [SPNCCFaces]
 loadAfter=SPNCC
+category=code
+
+[SpnCharCustom]
+category=code
+
+[SpnCharCustomDetails]
+loadAfter=SpnCharCustom
+category=code
+
+[SpnCharCustomDetailsHD]
+loadAfter=SpnCharCustomDetails
+category=other
+
+[SpnCharCustomFaces]
+loadAfter=SpnCharCustom
 category=code
 
 [SpnCloth]
@@ -1149,6 +1222,13 @@ category=code
 loadAfter=Karas Zone Selector API,vac_mod_b42_utils
 category=code
 
+[vac_mod_b42_utils]
+category=other
+
+[vac_playing_utils]
+loadAfter=vac_mod_b42_utils
+category=code
+
 [VanillaFoodsExpanded]
 category=code
 
@@ -1198,6 +1278,9 @@ category=other
 
 [YAPZLib]
 category=code
+
+[zHBVCEF]
+category=tweaks
 
 [ZWatchSlots]
 incompatibleMods=ShouldersWatchSlots
