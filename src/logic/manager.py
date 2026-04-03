@@ -933,6 +933,10 @@ class PZModManager:
                 
                 # Intersect files
                 overlap = current_files.intersection(set(other_info.get("media_files", [])))
+                
+                # Filter out translation files (harmless overlaps)
+                overlap = {f for f in overlap if "Translate/" not in f}
+
                 if overlap:
                     # Show only first 3 to avoid clutter
                     list_overlap = list(overlap)

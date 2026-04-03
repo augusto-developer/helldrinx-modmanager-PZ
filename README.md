@@ -1,60 +1,72 @@
 # 🧟 HellDrinx - Project Zomboid Mod Manager
 
-### O assistente definitivo para administradores de servidores de Project Zomboid.
+### The ultimate assistant for Project Zomboid server administrators.
 
-Cansado de lidar com o `servertest.ini` manualmente? O **HellDrinx Mod Manager** foi criado para automatizar a tarefa mais chata de um servidor: gerenciar, ordenar e limpar seus mods. Com uma interface moderna, rápida e intuitiva, você foca no survival e deixa a técnica com a gente.
-
----
-
-## 🎨 Entendendo a Interface (O Guia Visual)
-
-Para facilitar sua vida, usamos um sistema de cores e etiquetas que te dizem exatamente o estado do seu mod num piscar de olhos.
-
-### 🏷️ Etiquetas (Tags)
-*   **CORE**: O mod principal de um item do Steam Workshop. Geralmente é o que contém a lógica base.
-*   **SHARD / SUB-MOD**: Mods extras que vêm no mesmo pacote do Workshop (ex: traduções, mapas extras ou versões alternativas).
-*   **DEPENDENCY**: Mods que são necessários para que outros funcionem (ex: bibliotecas como "Tsar's Common Library").
-
-### 🌈 Guia de Cores
-*   🟢 **Verde**: O mod está ativo no servidor e os arquivos estão baixados no seu PC. Tudo certo!
-*   ⚪ **Cinza**: O mod está baixado no seu PC, mas não está ativo no servidor no momento.
-*   🟠 **Laranja**: O mod está ativo no servidor, mas o assistente não encontrou os arquivos locais. (Pode ser um erro de caminho ou o mod não terminou o download pela Steam).
-*   🔴 **Vermelho**: O mod é essencial (dependência), mas não está ativo nem foi encontrado. Atenção aqui!
+Tired of dealing with `servertest.ini` manually? **HellDrinx Mod Manager** was created to automate the most tedious task of running a server: managing, sorting, and cleaning your mods. With a modern, fast, and intuitive interface, you can focus on survival and leave the technicalities to us.
 
 ---
 
-## 🚀 Funcionalidades que facilitam sua vida
+## 🚀 Getting Started (Quick Guide)
 
-### 🛠️ Gestão com um Clique
-*   **Ícone da Steam 🌐**: Abre a página oficial do mod no Workshop diretamente.
-*   **Ícone de Pasta 📁**: Abre a pasta exata onde os arquivos do mod estão no seu Windows. Útil para conferir logs ou arquivos de configuração.
-*   **Botão REMOVE/ACTIVATE**: Ativa ou retira o mod do servidor instantaneamente. Quando você remove, ele vai para a aba **"Uninstalled"** para não poluir sua lista principal.
+Follow these steps to get your server running perfectly:
 
-### 🧹 Lixeira Inteligente (Trash)
-Mods que você não usa mais podem ser "limpos". O sistema os move para uma pasta segura, mantendo sua pasta de Workshop da Steam leve e organizada.
-
-### ⚡ Ordenação Automática
-O assistente lê as dependências de cada mod e garante que o seu `servertest.ini` tenha a ordem de carregamento PERFEITA, evitando crashes e erros de compatibilidade.
+1.  **Open the tool**.
+2.  **Click the Gear Icon (Settings)** to configure your `servertest.ini` and Steam Workshop paths.
+3.  **Wait for mods to load**. If they don't appear automatically, click **Manual Sync** at the bottom.
+4.  **Review your Mods**. You will see the mods currently link to your `.ini`. If your "Active" list is empty, click **Activate All** (your mods are likely in the "Uninstalled" tab).
+5.  **Customize your list**. Feel free to remove mods you no longer want; they will be moved to the **Uninstalled** tab to keep your dashboard clean.
+6.  **Monitor the Alert Triangle**. Use the issue tracker to stay informed. Always prioritize **Conflicts**; missing dependencies can sometimes be ignored depending on the specific mod requirements.
 
 ---
 
-## ⚙️ Configuração Inicial
+## 🎨 Understanding the UI (Visual Guide)
 
-Ao abrir o programa pela primeira vez, clique no ícone de **Engrenagem (Settings)**:
+We use a color and tag system to tell you exactly what's happening with your mods at a glance.
 
-1.  **Workshop Path**: Onde a Steam baixa os mods (ex: `.../steamapps/workshop/content/108600`).
-2.  **Server Config Path**: Onde fica o arquivo `.ini` do seu servidor (geralmente em `C:/Users/SEU_USUARIO/Zomboid/Server`).
+### 🏷️ Mod Tags
+*   **CORE**: The main mod from a Steam Workshop item. Usually contains the base logic.
+*   **SHARD / SUB-MOD**: Extra mods included in the same Workshop package (e.g., translations, extra maps, or alternative versions).
+*   **DEPENDENCY**: Essential mods required by others to function (e.g., "Tsar's Common Library").
 
-*Dica: Uma vez configurado, o programa lembrará dessas pastas para sempre!*
+### 🌈 Color Guide
+*   🟢 **Green**: Mod is active on the server and files are downloaded. All good!
+*   ⚪ **Grey**: Mod is downloaded but currently inactive on the server.
+*   🟠 **Orange**: Mod is active on the server, but local files were not found. (Check your paths or wait for Steam to finish downloading).
+*   🔴 **Red**: Essential dependency is missing or inactive. Action required!
 
 ---
 
-## 📸 Screenshots (Em breve)
-*[ESPAÇO RESERVADO PARA IMAGENS DA INTERFACE DASHBOARD]*
+## 🛠️ Features to Boost Your Productivity
+
+### One-Click Management
+*   **Steam Icon 🌐**: Opens the mod's official Workshop page directly.
+*   **Folder Icon 📁**: Opens the exact folder where the mod files are located on your Windows.
+*   **REMOVE/ACTIVATE**: Instantly toggles mods. Removed mods are hidden in the **"Uninstalled"** tab to avoid clutter.
+
+### Smart Trash 🧹
+Mods you no longer want can be "cleaned." The system moves them to a secure folder, keeping your Steam Workshop directory lean and organized.
+
+### Auto-Sorting ⚡
+The assistant analyzes each mod's dependencies and ensures your `servertest.ini` has the **PERFECT** load order, preventing crashes and compatibility errors.
 
 ---
 
-## 💎 Créditos e Suporte
-Desenvolvido por **HellDrinx** para a comunidade brasileira de Project Zomboid.
+## ⚙️ Initial Configuration
 
-> *"Facilitar o gerenciamento para que você tenha mais tempo para morrer em Rosewood."*
+Click the **Gear Icon** to set up:
+1.  **Workshop Path**: Where Steam downloads your mods (e.g., `.../steamapps/workshop/content/108600`).
+2.  **Server Config Path**: Where your server's `.ini` file is located (usually `C:/Users/YOUR_USER/Zomboid/Server`).
+
+*Tip: Once configured, these paths are saved and loaded automatically!*
+
+---
+
+## 📸 Screenshots (Coming Soon)
+*[PLACEHOLDER FOR DASHBOARD INTERFACE IMAGES]*
+
+---
+
+## 💎 Credits and Support
+Developed by **HellDrinx** for the global Project Zomboid community.
+
+> *"Simplifying management so you have more time to die in Rosewood."*

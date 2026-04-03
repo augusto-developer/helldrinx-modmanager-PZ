@@ -365,63 +365,56 @@ const App: React.FC = () => {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 flex items-center justify-center p-6"
-            style={{ background: 'rgba(2, 6, 23, 0.85)', backdropFilter: 'blur(12px)' }}
+            className="premium-modal-overlay"
           >
             <motion.div
               initial={{ scale: 0.9, y: 20, opacity: 0 }}
               animate={{ scale: 1, y: 0, opacity: 1 }}
               exit={{ scale: 0.9, y: 20, opacity: 0 }}
-              className="bg-slate-900 border border-slate-700/50 rounded-3xl w-full max-w-lg p-8 shadow-[0_0_50px_rgba(0,0,0,0.5)] overflow-hidden relative"
+              className="premium-modal"
             >
-              {/* Decorative background element */}
-              <div className="absolute -top-24 -right-24 w-48 h-48 bg-blue-500/10 rounded-full blur-3xl" />
-              <div className="absolute -bottom-24 -left-24 w-48 h-48 bg-red-500/10 rounded-full blur-3xl" />
-
-              <div className="relative z-10">
-                <div className="flex items-center gap-5 mb-8">
-                  <div className={`w-14 h-14 rounded-2xl flex items-center justify-center ${modalData.title.includes('Error') || modalData.title.includes('Incompatible') ? 'bg-red-500/20 text-red-500' : 'bg-amber-500/20 text-amber-500'}`}>
-                    <AlertTriangle size={32} />
-                  </div>
-                  <div>
-                    <h2 className="text-2xl font-black text-white tracking-tight">{modalData.title}</h2>
-                    <p className="text-slate-500 text-xs font-bold uppercase tracking-widest mt-1">System Alert</p>
-                  </div>
+              <div className="premium-modal-header">
+                <div className={`premium-alert-icon-container ${modalData.title.includes('Error') || modalData.title.includes('Incompatible') ? 'error' : 'warning'}`}>
+                  <AlertTriangle size={32} />
                 </div>
+                <div>
+                  <h2 className="premium-modal-title">{modalData.title}</h2>
+                  <p className="premium-modal-subtitle">System Alert</p>
+                </div>
+              </div>
 
-                <div className="space-y-6 mb-10">
-                  <p className="text-slate-300 text-lg leading-relaxed font-medium">
-                    {modalData.message}
+              <div className="premium-modal-body">
+                <p>
+                  {modalData.message}
+                </p>
+
+                <div className="premium-modal-detail">
+                  <div className="flex items-center gap-2 mb-2 justify-center">
+                    <Info size={14} className="text-blue-400" />
+                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Recommended Action</span>
+                  </div>
+                  <p>
+                    {modalData.remediation}
                   </p>
-
-                  <div className="bg-slate-800/40 p-5 rounded-2xl border border-slate-700/30">
-                    <div className="flex items-center gap-2 mb-3">
-                      <Info size={14} className="text-blue-400" />
-                      <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Recommended Action</span>
-                    </div>
-                    <p className="text-sm text-blue-300/90 leading-normal">
-                      {modalData.remediation}
-                    </p>
-                  </div>
                 </div>
+              </div>
 
-                <div className="flex flex-col gap-3">
-                  {(modalData as any).can_bypass && (
-                    <button
-                      onClick={() => handleAction((modalData as any).originalAction.endpoint, (modalData as any).originalAction.payload, true)}
-                      className="w-full py-4 bg-amber-500/10 text-amber-400 border border-amber-500/30 font-black rounded-2xl hover:bg-amber-500 hover:text-white transition-all duration-300 uppercase tracking-widest text-xs"
-                    >
-                      Proceed Anyway (Overwrite)
-                    </button>
-                  )}
-                  
+              <div className="premium-modal-actions">
+                {(modalData as any).can_bypass && (
                   <button
-                    onClick={() => setModalOpen(false)}
-                    className="w-full py-4 bg-white text-slate-900 font-black rounded-2xl hover:bg-blue-500 hover:text-white transition-all duration-300 uppercase tracking-widest text-xs shadow-xl shadow-white/5"
+                    onClick={() => handleAction((modalData as any).originalAction.endpoint, (modalData as any).originalAction.payload, true)}
+                    className="premium-btn-action premium-btn-secondary"
                   >
-                    Cancel & Go Back
+                    Proceed Anyway (Overwrite)
                   </button>
-                </div>
+                )}
+                
+                <button
+                  onClick={() => setModalOpen(false)}
+                  className="premium-btn-action premium-btn-primary"
+                >
+                  Cancel & Go Back
+                </button>
               </div>
             </motion.div>
           </motion.div>
