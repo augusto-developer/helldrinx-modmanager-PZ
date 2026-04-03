@@ -724,6 +724,7 @@ loadFirst=on
 
 [HellDrinxEssentials]
 loadLast=on
+loadAfter=NeatUI_Framework
 
 [HellDrinxJSONFix]
 loadLast=on
