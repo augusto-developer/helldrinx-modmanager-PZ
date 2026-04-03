@@ -30,7 +30,7 @@ We use a color and tag system to tell you exactly what's happening with your mod
 * **SHARD / SUB-MOD**: Extra mods included in the same Workshop package (e.g., translations, extra maps, or alternative versions).
 * **DEPENDENCY**: Essential mods required by others to function (e.g., "Tsar's Common Library").
 
-### 🌈 Color Guide
+### Color Guide
 * 🟢 **Green**: Mod is active on the server and files are downloaded. All good!
 * ⚪ **Grey**: Mod is downloaded but currently inactive on the server.
 * 🟠 **Orange**: Mod is active on the server, but local files were not found. (Check your paths or wait for Steam to finish downloading).
