@@ -4,6 +4,7 @@ import shutil
 import json
 import sys
 import zipfile
+import hashlib
 from datetime import datetime
 
 def get_base_dir():
@@ -73,6 +74,7 @@ class PZModManager:
         self.master_order = []
         self.trash_metadata = {}
         self.sorting_rules = {}
+        self.ignored_fingerprints = []
 
         # Perform migration before loading anything
         self._migrate_old_data()
@@ -107,6 +109,7 @@ class PZModManager:
                     data = json.load(f)
                     self.workshop_path = data.get("workshop_path", DEFAULT_WORKSHOP)
                     self.server_config_path = data.get("server_config_path", DEFAULT_SERVER_INI)
+                    self.ignored_fingerprints = data.get("ignored_fingerprints", [])
             except: pass
 
     def save_settings(self, workshop_path, server_config_path):
@@ -114,7 +117,8 @@ class PZModManager:
         self.server_config_path = server_config_path
         data = {
             "workshop_path": self.workshop_path,
-            "server_config_path": self.server_config_path
+            "server_config_path": self.server_config_path,
+            "ignored_fingerprints": self.ignored_fingerprints
         }
         os.makedirs(os.path.dirname(SETTINGS_FILE), exist_ok=True)
         with open(SETTINGS_FILE, "w") as f:
@@ -940,50 +944,130 @@ class PZModManager:
         
         return conflicts
 
-    def check_conflicts(self, mod_id, active_mods):
-        """Checks if the mod to be activated conflicts with any already active (ID or File)."""
+    def _get_conflict_fingerprint(self, target_mod_id, files):
+        """
+        Creates a unique hash for a specific 'type' of conflict.
+        Example: 'Conflict with damnlib on files X, Y, Z'.
+        Any mod overlapping with damnlib in this exact way will match.
+        """
+        file_string = ";".join(sorted(list(files)))
+        data = f"{target_mod_id}::{file_string}"
+        return hashlib.sha256(data.encode('utf-8')).hexdigest()
+
+    def check_conflicts(self, mod_id, active_mods, bypass_fingerprints=None):
+        """Checks for conflicts and returns details including a unique fingerprint."""
+        if bypass_fingerprints is None: bypass_fingerprints = []
+        
         rules = self.sorting_rules.get(mod_id, {})
         incompatible = rules.get("incompatibleMods", [])
         
-        # 1. Rule Conflicts (mod.info / manual)
+        # 1. Rule Conflicts
         rule_conflicts = [m for m in incompatible if m in active_mods]
         if rule_conflicts:
             return {
                 "title": "🔴 Incompatible Mods (Rules)",
+                "mod_id": mod_id,
+                "conflicting_with": rule_conflicts[0],
                 "message": f"Mod {mod_id} is explicitly incompatible with: {', '.join(rule_conflicts)}.",
-                "remediation": "Deactivate conflicting mods before activating this one."
+                "remediation": "Deactivate conflicting mods before activating this one.",
+                "type": "rule"
             }
         
-        # 2. Physical File Conflicts (Deep Analysis)
+        # 2. File Conflicts
         m_info = next((m for m in self.mods_data if m['id'] == mod_id), None)
         if m_info and m_info.get("media_files"):
             current_files = set(m_info["media_files"])
             for other_id in active_mods:
+                if other_id == mod_id: continue
                 other_info = next((m for m in self.mods_data if m['id'] == other_id), None)
                 if not other_info: continue
                 
-                # Intersect files
                 overlap = current_files.intersection(set(other_info.get("media_files", [])))
-                
-                # Filter out translation files (harmless overlaps)
                 overlap = {f for f in overlap if "Translate/" not in f}
 
                 if overlap:
-                    # Show only first 3 to avoid clutter
+                    fp = self._get_conflict_fingerprint(other_id, overlap)
+                    # Skip if globally ignored OR ignored in this specific action
+                    if fp in self.ignored_fingerprints or fp in bypass_fingerprints:
+                        continue
+
                     list_overlap = list(overlap)
                     msg = f"File Conflict with {other_id}! Both modify: {', '.join(list_overlap[:3])}"
                     if len(list_overlap) > 3: msg += f" (and {len(list_overlap)-3} more files)"
                     
                     return {
                         "title": "⚠️ File Conflict Detected",
+                        "mod_id": mod_id,
+                        "conflicting_with": other_id,
+                        "fingerprint": fp,
+                        "files": list_overlap,
                         "message": msg,
                         "remediation": "These mods modify the same files and may cause errors. Proceed only if you know one should override the other.",
-                        "can_bypass": True # Flag to show the 'Proceed Anyway' button
+                        "can_bypass": True,
+                        "type": "file"
                     }
-        
         return None
+
+    def activate_mods_bulk(self, mod_ids, bypass_conflicts=False, bypass_fingerprints=None):
+        """Activates multiple mods, collecting unique conflicts."""
+        if bypass_fingerprints is None: bypass_fingerprints = []
+        conflicts = []
+        to_activate_all = set()
         
-        return None
+        # 1. First Pass: Collect all mods to activate (including dependencies)
+        for mid in mod_ids:
+            dep_status = self.get_dependency_status()
+            queue = [mid]
+            while queue:
+                curr = queue.pop(0)
+                if curr not in to_activate_all:
+                    to_activate_all.add(curr)
+                    reqs = dep_status.get(curr, {}).get("depends_on", [])
+                    queue.extend([r for r in reqs if r not in to_activate_all])
+
+        # 2. Second Pass: Check Conflicts
+        if not bypass_conflicts:
+            current_simulated_server = set(self.server_mods)
+            for mid in to_activate_all:
+                if mid in current_simulated_server: continue
+                
+                conflict = self.check_conflicts(mid, current_simulated_server, bypass_fingerprints)
+                if conflict:
+                    # Avoid adding duplicate identical conflicts in the same bulk action
+                    if not any(c.get('fingerprint') == conflict.get('fingerprint') for c in conflicts):
+                        conflicts.append(conflict)
+                
+                current_simulated_server.add(mid)
+
+        if conflicts and not bypass_conflicts:
+            return {"status": "conflict_detected", "conflicts": conflicts}
+
+        # 3. Third Pass: Perform Activation
+        # Just use self.activate_mod (re-calculates but safe) for each top-level
+        errors = []
+        for mid in mod_ids:
+            res = self.activate_mod(mid, bypass_conflicts=True) # Already checked or bypass
+            if res.get("status") == "error":
+                errors.append(res.get("message"))
+        
+        if errors:
+            return {"status": "error", "message": "; ".join(errors)}
+            
+        return {"status": "success", "message": f"Successfully activated {len(mod_ids)} mods."}
+
+    def ignore_fingerprint(self, fingerprint):
+        """Adds a conflict fingerprint to the permanent whitelist."""
+        if fingerprint not in self.ignored_fingerprints:
+            self.ignored_fingerprints.append(fingerprint)
+            self.save_settings(self.workshop_path, self.server_config_path)
+            return True
+        return False
+
+    def clear_ignored_conflicts(self):
+        """Clears all stored conflict fingerprints."""
+        self.ignored_fingerprints = []
+        self.save_settings(self.workshop_path, self.server_config_path)
+        return True
 
     def _sort_mod_ids(self, mod_ids):
         """Ordena IDs usando Topological Sort e o Gabarito Mestre como desempate."""

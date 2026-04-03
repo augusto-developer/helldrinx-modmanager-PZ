@@ -1,3 +1,4 @@
+from typing import List, Optional
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -32,9 +33,12 @@ class SettingsAction(BaseModel):
 
 class ModAction(BaseModel):
     mod_id: str = ""
-    workshop_id: str
+    mod_ids: List[str] = []
+    workshop_id: str = ""
     name: str = ""
     bypass_conflicts: bool = False
+    fingerprint: str = ""
+    fingerprints: List[str] = []
 
 class RawRulesAction(BaseModel):
     content: str
@@ -100,9 +104,30 @@ async def sync_mods():
 @app.post("/api/activate-mod")
 async def activate_mod(action: ModAction):
     result = manager.activate_mod(action.mod_id, action.bypass_conflicts)
-    if result.get("status") == "success":
-        return result
     return result
+
+@app.post("/api/activate-bulk")
+async def activate_bulk(action: ModAction):
+    try:
+        if not action.mod_ids:
+            return {"status": "error", "message": "No mod IDs provided for bulk action"}
+        result = manager.activate_mods_bulk(action.mod_ids, action.bypass_conflicts, action.fingerprints)
+        return result
+    except Exception as e:
+        print(f"ERROR in activate_bulk: {str(e)}")
+        return {"status": "error", "message": str(e)}
+
+@app.post("/api/ignore-fingerprint")
+async def ignore_fingerprint(action: ModAction):
+    if manager.ignore_fingerprint(action.fingerprint):
+        return {"status": "success"}
+    return {"status": "error", "message": "Failed to ignore fingerprint or already ignored"}
+
+@app.post("/api/clear-ignored-conflicts")
+async def clear_ignored_conflicts():
+    if manager.clear_ignored_conflicts():
+        return {"status": "success"}
+    return {"status": "error"}
 
 @app.post("/api/delete-volume")
 async def delete_volume(action: ModAction):
