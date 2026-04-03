@@ -11,17 +11,34 @@ def get_base_dir():
         return os.path.dirname(sys.executable)
     return os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 
+def get_data_dir():
+    """Returns the path to the application data directory in %AppData%."""
+    app_data = os.environ.get('APPDATA')
+    if not app_data:
+        # Fallback for non-Windows or if APPDATA is missing
+        app_data = os.path.expanduser('~')
+    
+    data_dir = os.path.join(app_data, "HellDrinxModManager")
+    if not os.path.exists(data_dir):
+        os.makedirs(data_dir)
+    return data_dir
+
 BASE_DIR = get_base_dir()
+DATA_DIR = get_data_dir()
 
 # Default Paths and Data Files
 DEFAULT_WORKSHOP = r"C:\Program Files (x86)\Steam\steamapps\workshop\content\108600"
 DEFAULT_SERVER_INI = os.path.join(os.environ.get('USERPROFILE', ''), "Zomboid", "Server", "servertest.ini")
-TRASH_PATH = os.path.join(BASE_DIR, "src", "trash")
-CACHE_FILE = os.path.join(BASE_DIR, "src", "mods_cache.json")
-MASTER_ORDER_FILE = os.path.join(BASE_DIR, "src", "master_order.json")
-SORTING_RULES_FILE = os.path.join(BASE_DIR, "sorting_rules.txt")
-SETTINGS_FILE = os.path.join(BASE_DIR, "src", "settings.json")
-PROFILES_DIR = os.path.join(BASE_DIR, "profiles")
+
+# File paths in %AppData%
+SETTINGS_FILE = os.path.join(DATA_DIR, "settings.json")
+CACHE_FILE = os.path.join(DATA_DIR, "mods_cache.json")
+MASTER_ORDER_FILE = os.path.join(DATA_DIR, "master_order.json")
+SORTING_RULES_FILE = os.path.join(DATA_DIR, "sorting_rules.txt")
+PROFILES_DIR = os.path.join(DATA_DIR, "profiles")
+LOG_FILE = os.path.join(DATA_DIR, "scanner_debug.log")
+TRASH_PATH = os.path.join(DATA_DIR, "trash")
+TRASH_METADATA_FILE = os.path.join(DATA_DIR, "trash_metadata.json")
 
 CATEGORY_TIERS = {
     "preorder": 0,
@@ -41,9 +58,9 @@ PREORDER_MODS = ["ModManager", "ModManagerServer", "modoptions"]
 
 class PZModManager:
     def log(self, message):
-        log_file = os.path.join(BASE_DIR, "scanner_debug.log")
-        with open(log_file, "a", encoding="utf-8") as f:
+        with open(LOG_FILE, "a", encoding="utf-8") as f:
             f.write(f"{message}\n")
+
 
     def __init__(self):
         self.mods_data = [] 
@@ -51,8 +68,19 @@ class PZModManager:
         self.server_workshop_ids = []
         self.total_mod_folders = 0
         self.trash_data = [] 
-        self.master_order = [] 
-        self.sorting_rules = {} 
+        self.server_config_path = ""
+        self.workshop_dir = ""
+        self.master_order = []
+        self.trash_metadata = {}
+        self.sorting_rules = {}
+
+        # Perform migration before loading anything
+        self._migrate_old_data()
+
+        # Ensure directories exist
+        for d in [DATA_DIR, PROFILES_DIR, TRASH_PATH]:
+            if not os.path.exists(d):
+                os.makedirs(d)
         
         # Settings
         self.workshop_path = DEFAULT_WORKSHOP
@@ -64,10 +92,6 @@ class PZModManager:
         self._load_trash_metadata()
         self._load_sorting_rules()
         self.load_server_config()
-
-        # Ensure profiles directory exists
-        if not os.path.exists(PROFILES_DIR):
-            os.makedirs(PROFILES_DIR)
 
     def sync_servertest_ini(self):
         """Consolidates workshop scanning and server config loading."""
@@ -1124,6 +1148,52 @@ class PZModManager:
     def _save_master_order(self):
         with open(MASTER_ORDER_FILE, "w", encoding="utf-8") as f:
             json.dump(self.master_order, f)
+
+    def _migrate_old_data(self):
+        """Moves data from project/EXE root or old src folder to %AppData% if it exists."""
+        # Paths in project root
+        old_root_sorting_rules = os.path.join(BASE_DIR, "sorting_rules.txt")
+        old_root_profiles = os.path.join(BASE_DIR, "profiles")
+        old_root_cache = os.path.join(BASE_DIR, "mods_cache.json")
+        
+        # Paths in old src folder
+        old_src = os.path.join(BASE_DIR, "src")
+        
+        # 1. Migrate individual files from root and src
+        migrations = [
+            (old_root_sorting_rules, SORTING_RULES_FILE),
+            (old_root_cache, CACHE_FILE),
+            (os.path.join(old_src, "settings.json"), SETTINGS_FILE),
+            (os.path.join(old_src, "master_order.json"), MASTER_ORDER_FILE),
+            (os.path.join(old_src, "mods_cache.json"), CACHE_FILE),
+            (os.path.join(old_src, "sorting_rules.txt"), SORTING_RULES_FILE),
+        ]
+
+        for old_p, new_p in migrations:
+            if os.path.exists(old_p) and not os.path.exists(new_p):
+                try: shutil.move(old_p, new_p)
+                except: pass
+
+        # 2. Migrate Profile Folder
+        if os.path.exists(old_root_profiles) and not os.path.exists(PROFILES_DIR):
+            try: shutil.move(old_root_profiles, PROFILES_DIR)
+            except: pass
+        elif os.path.exists(old_root_profiles) and os.path.exists(PROFILES_DIR):
+            # Merge profiles from root if they don't exist in AppData
+            for item in os.listdir(old_root_profiles):
+                s = os.path.join(old_root_profiles, item)
+                d = os.path.join(PROFILES_DIR, item)
+                if not os.path.exists(d):
+                    try: shutil.move(s, d)
+                    except: pass
+            try: shutil.rmtree(old_root_profiles)
+            except: pass
+
+        # 3. Migrate Trash Folder
+        old_src_trash = os.path.join(old_src, "trash")
+        if os.path.exists(old_src_trash) and not os.path.exists(TRASH_PATH):
+            try: shutil.move(old_src_trash, TRASH_PATH)
+            except: pass
 
     # --- PROFILES & BACKUP ---
 
