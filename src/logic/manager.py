@@ -3,6 +3,8 @@ import re
 import shutil
 import json
 import sys
+import zipfile
+from datetime import datetime
 
 def get_base_dir():
     if getattr(sys, 'frozen', False):
@@ -19,6 +21,7 @@ CACHE_FILE = os.path.join(BASE_DIR, "src", "mods_cache.json")
 MASTER_ORDER_FILE = os.path.join(BASE_DIR, "src", "master_order.json")
 SORTING_RULES_FILE = os.path.join(BASE_DIR, "sorting_rules.txt")
 SETTINGS_FILE = os.path.join(BASE_DIR, "src", "settings.json")
+PROFILES_DIR = os.path.join(BASE_DIR, "profiles")
 
 CATEGORY_TIERS = {
     "preorder": 0,
@@ -61,6 +64,10 @@ class PZModManager:
         self._load_trash_metadata()
         self._load_sorting_rules()
         self.load_server_config()
+
+        # Ensure profiles directory exists
+        if not os.path.exists(PROFILES_DIR):
+            os.makedirs(PROFILES_DIR)
 
     def sync_servertest_ini(self):
         """Consolidates workshop scanning and server config loading."""
@@ -1117,3 +1124,87 @@ class PZModManager:
     def _save_master_order(self):
         with open(MASTER_ORDER_FILE, "w", encoding="utf-8") as f:
             json.dump(self.master_order, f)
+
+    # --- PROFILES & BACKUP ---
+
+    def list_profiles(self):
+        """Returns a list of saved profile names (without .ini extension)."""
+        if not os.path.exists(PROFILES_DIR):
+            return []
+        return [f.replace(".ini", "") for f in os.listdir(PROFILES_DIR) if f.endswith(".ini")]
+
+    def save_profile(self, name):
+        """Saves current servertest.ini as a profile."""
+        if not os.path.exists(self.server_config_path):
+            return {"status": "error", "message": "Active servertest.ini not found"}
+        
+        try:
+            dest = os.path.join(PROFILES_DIR, f"{name}.ini")
+            shutil.copy2(self.server_config_path, dest)
+            return {"status": "success", "message": f"Profile '{name}' saved successfully"}
+        except Exception as e:
+            return {"status": "error", "message": str(e)}
+
+    def load_profile(self, name):
+        """Loads a profile into the active servertest.ini."""
+        src = os.path.join(PROFILES_DIR, f"{name}.ini")
+        if not os.path.exists(src):
+            return {"status": "error", "message": f"Profile '{name}' not found"}
+        
+        try:
+            shutil.copy2(src, self.server_config_path)
+            self.load_server_config()
+            return {"status": "success", "message": f"Profile '{name}' loaded successfully"}
+        except Exception as e:
+            return {"status": "error", "message": str(e)}
+
+    def delete_profile(self, name):
+        """Deletes a profile file."""
+        path = os.path.join(PROFILES_DIR, f"{name}.ini")
+        if os.path.exists(path):
+            try:
+                os.remove(path)
+                return {"status": "success"}
+            except Exception as e:
+                return {"status": "error", "message": str(e)}
+        return {"status": "error", "message": "Profile not found"}
+
+    def create_server_backup(self, zomboid_path, backup_dest):
+        """Zips Saves and Server folders from Zomboid path to backup_dest."""
+        if not os.path.exists(zomboid_path):
+            return {"status": "error", "message": "Zomboid directory not found"}
+        
+        saves_path = os.path.join(zomboid_path, "Saves")
+        server_path = os.path.join(zomboid_path, "Server")
+        
+        # Validation
+        missing = []
+        if not os.path.exists(saves_path): missing.append("Saves")
+        if not os.path.exists(server_path): missing.append("Server")
+        
+        if missing:
+            return {"status": "error", "message": f"Missing folders in Zomboid path: {', '.join(missing)}"}
+
+        try:
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            zip_filename = f"HellDrinx_PZ_Backup_{timestamp}.zip"
+            zip_path = os.path.join(backup_dest, zip_filename)
+            
+            with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+                # Add Saves
+                for root, dirs, files in os.walk(saves_path):
+                    for file in files:
+                        abs_p = os.path.join(root, file)
+                        rel_p = os.path.relpath(abs_p, zomboid_path)
+                        zipf.write(abs_p, rel_p)
+                
+                # Add Server
+                for root, dirs, files in os.walk(server_path):
+                    for file in files:
+                        abs_p = os.path.join(root, file)
+                        rel_p = os.path.relpath(abs_p, zomboid_path)
+                        zipf.write(abs_p, rel_p)
+            
+            return {"status": "success", "message": f"Backup created: {zip_filename}", "path": zip_path}
+        except Exception as e:
+            return {"status": "error", "message": str(e)}

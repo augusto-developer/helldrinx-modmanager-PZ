@@ -15,7 +15,11 @@ import {
   FolderOpen,
   Info,
   ChevronDown,
-  ChevronUp
+  ChevronUp,
+  Database,
+  Save,
+  Download,
+  Trash
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -70,6 +74,14 @@ const App: React.FC = () => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [highlightedMod, setHighlightedMod] = useState<string | null>(null);
   const [activeSidebarTab, setActiveSidebarTab] = useState<'conflict' | 'missing'>('conflict');
+  const [profiles, setProfiles] = useState<string[]>([]);
+  const [profilesOpen, setProfilesOpen] = useState(false);
+  const [profileMenuOpen, setProfileMenuOpen] = useState(false);
+  const [selectedProfile, setSelectedProfile] = useState<string | null>(null);
+  const [backupLoading, setBackupLoading] = useState(false);
+  const [backupModalOpen, setBackupModalOpen] = useState(false);
+  const [zomboidPath, setZomboidPath] = useState<string>('');
+  const [backupDest, setBackupDest] = useState<string>('');
 
   // Calculate Issues (Missing dependencies, Conflicts)
   const issues = React.useMemo(() => {
@@ -165,6 +177,109 @@ const App: React.FC = () => {
   const showNotification = (message: string, type: 'success' | 'info' | 'warning' = 'info') => {
     setNotification({ message, type });
     setTimeout(() => setNotification(null), 4000);
+  };
+
+  const fetchProfiles = async () => {
+    try {
+      const resp = await fetch(`${API_BASE}/api/profiles`);
+      const data = await resp.json();
+      setProfiles(data.profiles || []);
+    } catch (err) {
+      console.error('Error fetching profiles:', err);
+    }
+  };
+
+  const handleProfileSave = async (name: string) => {
+    if (!name) return;
+    try {
+      const resp = await fetch(`${API_BASE}/api/profiles/save`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name }),
+      });
+      const data = await resp.json();
+      if (data.status === 'success') {
+        showNotification(data.message, 'success');
+        fetchProfiles();
+      } else {
+        showNotification(data.message, 'warning');
+      }
+    } catch (err) {
+      console.error('Save profile failed:', err);
+    }
+  };
+
+  const handleProfileLoad = async (name: string) => {
+    try {
+      const resp = await fetch(`${API_BASE}/api/profiles/load`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name }),
+      });
+      const data = await resp.json();
+      if (data.status === 'success') {
+        showNotification(data.message, 'success');
+        setSelectedProfile(name);
+        await fetchMods(); // Refresh mod list for the new profile
+      } else {
+        showNotification(data.message, 'warning');
+      }
+    } catch (err) {
+      console.error('Load profile failed:', err);
+    }
+  };
+
+  const handleProfileDelete = async (name: string) => {
+    try {
+      const resp = await fetch(`${API_BASE}/api/profiles/delete`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name }),
+      });
+      if (resp.ok) {
+        showNotification(`Profile '${name}' deleted.`, 'info');
+        fetchProfiles();
+      }
+    } catch (err) {
+      console.error('Delete profile failed:', err);
+    }
+  };
+
+  const handleBackupPathStep = async (step: 'zomboid' | 'dest') => {
+    try {
+      const path = await (window as any).require('electron').ipcRenderer.invoke('select-folder');
+      if (path) {
+        if (step === 'zomboid') setZomboidPath(path);
+        else setBackupDest(path);
+      }
+    } catch (err) {
+      console.error('Path selection error:', err);
+    }
+  };
+
+  const handleBackupExecution = async () => {
+    if (!zomboidPath || !backupDest) return;
+
+    setBackupLoading(true);
+    try {
+      const resp = await fetch(`${API_BASE}/api/backup`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ zomboid_path: zomboidPath, backup_dest: backupDest }),
+      });
+      const data = await resp.json();
+      if (data.status === 'success') {
+        showNotification(data.message, 'success');
+        setBackupModalOpen(false);
+      } else {
+        showNotification(data.message, 'warning');
+      }
+    } catch (err) {
+      console.error('Backup failed:', err);
+      showNotification('Backup failed due to a system error.', 'warning');
+    } finally {
+      setBackupLoading(false);
+    }
   };
 
   const syncMods = async () => {
@@ -265,6 +380,7 @@ const App: React.FC = () => {
   useEffect(() => {
     fetchMods();
     fetchSettings();
+    fetchProfiles();
   }, []);
 
   const filteredMods = mods.filter(m => {
@@ -447,6 +563,94 @@ const App: React.FC = () => {
             <Settings size={20} />
           </motion.button>
 
+          <div style={{ position: 'relative' }}>
+            <motion.button
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+              onClick={() => setProfileMenuOpen(!profileMenuOpen)}
+              style={{
+                background: 'rgba(59, 130, 246, 0.15)', border: '1px solid rgba(59, 130, 246, 0.3)',
+                color: '#3b82f6', cursor: 'pointer', padding: '10px 16px', borderRadius: '12px',
+                display: 'flex', alignItems: 'center', gap: '8px', transition: 'all 0.2s'
+              }}
+              title="Switch Profiles"
+            >
+              <Database size={18} />
+              <span style={{ fontSize: '11px', fontWeight: 'bold' }}>
+                {selectedProfile ? selectedProfile.toUpperCase() : 'PROFILES'}
+              </span>
+              <ChevronDown size={14} style={{ transform: profileMenuOpen ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }} />
+            </motion.button>
+
+            {/* Dropdown Menu */}
+            <AnimatePresence>
+              {profileMenuOpen && (
+                <motion.div
+                   initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                   animate={{ opacity: 1, y: 0, scale: 1 }}
+                   exit={{ opacity: 0, y: 10, scale: 0.95 }}
+                   className="glass"
+                   style={{
+                     position: 'absolute', top: 'calc(100% + 8px)', right: 0, width: '220px',
+                     borderRadius: '16px', padding: '8px', zIndex: 100,
+                     boxShadow: '0 10px 30px rgba(0,0,0,0.5)',
+                     border: '1px solid rgba(59, 130, 246, 0.3)'
+                   }}
+                >
+                  <div style={{ maxHeight: '200px', overflowY: 'auto', marginBottom: '8px' }}>
+                    {profiles.length === 0 ? (
+                      <div style={{ padding: '12px', fontSize: '11px', color: '#64748b', textAlign: 'center' }}>No profiles found</div>
+                    ) : (
+                      profiles.map(p => (
+                        <div key={p} style={{ display: 'flex', gap: '4px', marginBottom: '4px' }}>
+                          <button
+                            onClick={() => {
+                              handleProfileLoad(p);
+                              setProfileMenuOpen(false);
+                            }}
+                            className="btn"
+                            style={{ 
+                              flexGrow: 1, background: 'rgba(255,255,255,0.05)', color: 'white', padding: '8px 12px', 
+                              borderRadius: '8px', justifyContent: 'flex-start', fontSize: '12px' 
+                            }}
+                          >
+                            {p}
+                          </button>
+                          <button
+                            onClick={() => handleProfileDelete(p)}
+                            style={{ 
+                              background: 'rgba(239, 68, 68, 0.1)', color: '#ef4444', border: 'none', 
+                              borderRadius: '8px', padding: '8px', cursor: 'pointer' 
+                            }}
+                          >
+                            <Trash size={14} />
+                          </button>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                  
+                  <div style={{ height: '1px', background: 'rgba(255,255,255,0.1)', margin: '8px 0' }} />
+                  
+                  <button
+                    onClick={() => {
+                      setProfileMenuOpen(false);
+                      setProfilesOpen(true);
+                    }}
+                    className="btn"
+                    style={{ 
+                      width: '100%', background: 'rgba(34, 197, 94, 0.1)', color: '#4ade80', 
+                      padding: '8px', borderRadius: '8px', fontSize: '11px', fontWeight: 'bold' 
+                    }}
+                  >
+                    <Save size={14} />
+                    CREATE NEW PROFILE
+                  </button>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+
           {issues.length > 0 && (
             <motion.button
               whileHover={{ scale: 1.1 }}
@@ -526,6 +730,20 @@ const App: React.FC = () => {
             </motion.button>
           )}
         </AnimatePresence>
+
+        <motion.button
+          whileHover={{ scale: 1.02 }}
+          whileTap={{ scale: 0.98 }}
+          onClick={() => setBackupModalOpen(true)}
+          className="glass-btn"
+          style={{ 
+            fontSize: '11px', padding: '10px 16px', background: 'rgba(168, 85, 247, 0.1)', 
+            borderColor: 'rgba(168, 85, 247, 0.3)', color: '#c084fc'
+          }}
+        >
+          <History size={14} />
+          SERVER BACKUP
+        </motion.button>
 
         <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
           <button
@@ -1240,6 +1458,205 @@ const App: React.FC = () => {
           50% { opacity: .5; }
         }
       `}} />
+      {/* Profiles Modal */}
+      <AnimatePresence>
+        {profilesOpen && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="premium-modal-overlay"
+          >
+            <motion.div
+              initial={{ scale: 0.9, y: 20, opacity: 0 }}
+              animate={{ scale: 1, y: 0, opacity: 1 }}
+              exit={{ scale: 0.9, y: 20, opacity: 0 }}
+              className="premium-modal"
+              style={{ maxWidth: '600px' }}
+            >
+              <div className="premium-modal-header" style={{ marginBottom: '24px' }}>
+                <div className="premium-alert-icon-container warning" style={{ background: 'rgba(59, 130, 246, 0.1)', color: '#3b82f6' }}>
+                  <Database size={32} />
+                </div>
+                <h2 className="premium-modal-title">Profile Management</h2>
+                <p className="premium-modal-subtitle">Config Presets</p>
+              </div>
+
+              <div className="premium-modal-body" style={{ textAlign: 'left' }}>
+                <div style={{ marginBottom: '24px' }}>
+                  <label style={{ fontSize: '12px', color: '#94a3b8', marginBottom: '8px', display: 'block' }}>Set Profile Name</label>
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    <input 
+                      type="text" 
+                      id="new-profile-name"
+                      placeholder="Enter profile name (e.g., Multiplayer_Survival)..." 
+                      className="glass-input" 
+                      style={{ flexGrow: 1, padding: '12px', borderRadius: '12px', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', color: 'white' }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          handleProfileSave((e.target as HTMLInputElement).value);
+                          (e.target as HTMLInputElement).value = '';
+                          setProfilesOpen(false);
+                        }
+                      }}
+                    />
+                    <button 
+                      onClick={() => {
+                        const input = document.getElementById('new-profile-name') as HTMLInputElement;
+                        handleProfileSave(input.value);
+                        input.value = '';
+                        setProfilesOpen(false);
+                      }}
+                      className="glass-btn" 
+                      style={{ background: '#3b82f6', color: 'white', border: 'none' }}
+                    >
+                      <Save size={18} />
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <div className="premium-modal-actions" style={{ marginTop: '24px' }}>
+                <button
+                  onClick={() => setProfilesOpen(false)}
+                  className="premium-btn-action premium-btn-primary"
+                  style={{ padding: '14px' }}
+                >
+                  CLOSE
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Backup Modal */}
+      <AnimatePresence>
+        {backupModalOpen && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="premium-modal-overlay"
+          >
+            <motion.div
+              initial={{ scale: 0.9, y: 20, opacity: 0 }}
+              animate={{ scale: 1, y: 0, opacity: 1 }}
+              exit={{ scale: 0.9, y: 20, opacity: 0 }}
+              className="premium-modal"
+              style={{ maxWidth: '600px' }}
+            >
+              <div className="premium-modal-header" style={{ marginBottom: '24px' }}>
+                <div className="premium-alert-icon-container warning" style={{ background: 'rgba(168, 85, 247, 0.1)', color: '#c084fc' }}>
+                  <History size={32} />
+                </div>
+                <h2 className="premium-modal-title">Server Backup</h2>
+                <p className="premium-modal-subtitle">Secure Your Progress</p>
+              </div>
+
+              <div className="premium-modal-body" style={{ textAlign: 'left' }}>
+                {/* Zomboid Folder Step */}
+                <div style={{ marginBottom: '20px' }}>
+                  <label style={{ fontSize: '12px', color: '#94a3b8', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <Package size={14} /> 1. Project Zomboid Main Directory
+                  </label>
+                  <p style={{ fontSize: '10px', color: '#64748b', marginBottom: '8px' }}>
+                    Typically: <code>C:\Users\{window.process?.env?.USERNAME || 'User'}\Zomboid</code>
+                  </p>
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    <input 
+                      readOnly
+                      type="text" 
+                      placeholder="Folder not selected..." 
+                      className="glass-input" 
+                      value={zomboidPath}
+                      style={{ flexGrow: 1, padding: '10px', borderRadius: '10px', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', color: 'white', fontSize: '11px' }}
+                    />
+                    <button 
+                      onClick={() => handleBackupPathStep('zomboid')}
+                      className="glass-btn" 
+                      style={{ padding: '8px 12px', borderColor: zomboidPath ? '#3b82f6' : 'rgba(255,255,255,0.1)' }}
+                    >
+                      <FolderOpen size={16} />
+                    </button>
+                  </div>
+                </div>
+
+                {/* Backup Destination Step */}
+                <div style={{ marginBottom: '24px' }}>
+                  <label style={{ fontSize: '12px', color: '#94a3b8', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <History size={14} /> 2. Where To Store The Backup?
+                  </label>
+                  <p style={{ fontSize: '10px', color: '#64748b', marginBottom: '8px' }}>
+                    Recommendation: Area de Trabalho (Desktop)
+                  </p>
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    <input 
+                      readOnly
+                      type="text" 
+                      placeholder="Destination not selected..." 
+                      className="glass-input" 
+                      value={backupDest}
+                      style={{ flexGrow: 1, padding: '10px', borderRadius: '10px', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', color: 'white', fontSize: '11px' }}
+                    />
+                    <button 
+                      onClick={() => handleBackupPathStep('dest')}
+                      className="glass-btn" 
+                      style={{ padding: '8px 12px', borderColor: backupDest ? '#3b82f6' : 'rgba(255,255,255,0.1)' }}
+                    >
+                      <FolderOpen size={16} />
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <div className="premium-modal-actions" style={{ gap: '12px' }}>
+                <button
+                  disabled={!zomboidPath || !backupDest || backupLoading}
+                  onClick={handleBackupExecution}
+                  className="premium-btn-action premium-btn-primary"
+                  style={{ 
+                    padding: '16px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px',
+                    opacity: (!zomboidPath || !backupDest || backupLoading) ? 0.5 : 1,
+                    background: backupLoading ? 'var(--text-secondary)' : 'white'
+                  }}
+                >
+                  <History size={18} className={backupLoading ? "animate-spin" : ""} />
+                  {backupLoading ? "GENERATING BACKUP..." : "GENERATE BACKUP NOW"}
+                </button>
+                <button
+                  onClick={() => setBackupModalOpen(false)}
+                  className="premium-btn-action"
+                  style={{ background: 'transparent', color: '#94a3b8', padding: '10px', fontSize: '10px' }}
+                >
+                  CANCEL
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Global Notification */}
+      <AnimatePresence>
+        {notification && (
+          <motion.div
+            initial={{ opacity: 0, y: 50, x: '-50%' }}
+            animate={{ opacity: 1, y: 0, x: '-50%' }}
+            exit={{ opacity: 0, y: 50, x: '-50%' }}
+            style={{
+              position: 'fixed', bottom: '32px', left: '50%', zIndex: 3000,
+              background: notification.type === 'success' ? 'rgba(34, 197, 94, 0.9)' : (notification.type === 'warning' ? 'rgba(245, 158, 11, 0.9)' : 'rgba(59, 130, 246, 0.9)'),
+              color: 'white', padding: '12px 24px', borderRadius: '16px', fontWeight: 'bold',
+              boxShadow: '0 10px 25px rgba(0,0,0,0.3)', backdropFilter: 'blur(8px)',
+              display: 'flex', alignItems: 'center', gap: '10px'
+            }}
+          >
+            {notification.type === 'success' ? <Package size={18} /> : <AlertTriangle size={18} />}
+            {notification.message}
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };

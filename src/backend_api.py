@@ -39,6 +39,13 @@ class ModAction(BaseModel):
 class RawRulesAction(BaseModel):
     content: str
 
+class ProfileAction(BaseModel):
+    name: str
+
+class BackupAction(BaseModel):
+    zomboid_path: str
+    backup_dest: str
+
 @app.get("/api/mods")
 async def get_mods():
     """Returns mods from JSON cache or workshop."""
@@ -181,6 +188,28 @@ async def deactivate_all():
     if manager.deactivate_all():
         return {"status": "success"}
     raise HTTPException(status_code=500, detail="Error deactivating all")
+
+# --- PROFILES ---
+@app.get("/api/profiles")
+async def list_profiles():
+    return {"profiles": manager.list_profiles()}
+
+@app.post("/api/profiles/save")
+async def save_profile(action: ProfileAction):
+    return manager.save_profile(action.name)
+
+@app.post("/api/profiles/load")
+async def load_profile(action: ProfileAction):
+    return manager.load_profile(action.name)
+
+@app.post("/api/profiles/delete")
+async def delete_profile(action: ProfileAction):
+    return manager.delete_profile(action.name)
+
+# --- BACKUP ---
+@app.post("/api/backup")
+async def create_backup(action: BackupAction):
+    return manager.create_server_backup(action.zomboid_path, action.backup_dest)
 
 def start_server():
     uvicorn.run(app, host="0.0.0.0", port=8000)
