@@ -1,17 +1,18 @@
 @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&display=swap');
 
 :root {
-  --bg-primary: #020617;
-  --bg-secondary: #0f172a;
-  --bg-tertiary: #1e293b;
-  --text-primary: #f8fafc;
-  --text-secondary: #94a3b8;
-  --accent-blue: #3b82f6;
-  --accent-blue-glow: rgba(59, 130, 246, 0.5);
-  --accent-red: #ef4444;
-  --glass-bg: rgba(15, 23, 42, 0.4);
-  --glass-border: rgba(255, 255, 255, 0.1);
-  --card-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+  --bg-primary: #0d0b0a;
+  --bg-secondary: #1a1614;
+  --bg-tertiary: #2b2621;
+  --text-primary: #e8e1d5;
+  --text-secondary: #a6998a;
+  --accent-red: #8b2612;
+  --accent-red-glow: rgba(139, 38, 18, 0.4);
+  --accent-amber: #d97706;
+  --accent-amber-glow: rgba(217, 119, 6, 0.3);
+  --glass-bg: rgba(20, 17, 15, 0.5);
+  --glass-border: rgba(232, 225, 213, 0.1);
+  --card-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.6);
 }
 
 * {
@@ -57,7 +58,7 @@ body {
 
 /* Header UI */
 .header {
-  background: linear-gradient(135deg, var(--bg-secondary) 0%, #1e1b4b 100%);
+  background: linear-gradient(135deg, var(--bg-secondary) 0%, #3f1008 100%);
   padding: 24px 32px;
   border-radius: 24px;
   border: 1px solid var(--glass-border);
@@ -78,7 +79,7 @@ body {
 }
 
 .brand-subtitle {
-  color: var(--accent-blue);
+  color: var(--accent-amber);
   font-size: 0.75rem;
   font-weight: 600;
   text-transform: uppercase;
@@ -99,15 +100,15 @@ body {
 }
 
 .btn-primary {
-  background: var(--accent-blue);
+  background: var(--accent-red);
   color: white;
-  box-shadow: 0 0 15px var(--accent-blue-glow);
+  box-shadow: 0 0 15px var(--accent-red-glow);
 }
 
 .btn-primary:hover {
-  background: #2563eb;
+  background: #a32e18;
   transform: translateY(-2px);
-  box-shadow: 0 0 25px var(--accent-blue-glow);
+  box-shadow: 0 0 25px var(--accent-red-glow);
 }
 
 .glass-btn {
@@ -168,9 +169,9 @@ body {
 }
 
 .search-box input:focus {
-  border-color: var(--accent-blue);
+  border-color: var(--accent-amber);
   background: rgba(15, 23, 42, 0.8);
-  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
+  box-shadow: 0 0 0 2px var(--accent-amber-glow);
 }
 
 /* Mod Card UI */
@@ -187,7 +188,7 @@ body {
 }
 
 .mod-card:hover {
-  border-color: var(--accent-blue-glow);
+  border-color: var(--accent-red-glow);
   transform: translateY(-1px);
 }
 
@@ -331,13 +332,13 @@ body {
 }
 
 .premium-modal {
-  background: linear-gradient(145deg, #0f172a 0%, #020617 100%);
+  background: linear-gradient(145deg, #1a1614 0%, #0d0b0a 100%);
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 32px;
   width: 100%;
   max-width: 500px;
   padding: 40px;
-  box-shadow: 0 0 80px rgba(0, 0, 0, 0.8), 0 0 30px rgba(59, 130, 246, 0.1);
+  box-shadow: 0 0 80px rgba(0, 0, 0, 0.8), 0 0 30px var(--accent-red-glow);
   position: relative;
   overflow: hidden;
 }
@@ -438,16 +439,16 @@ body {
 }
 
 .premium-btn-primary {
-  background: white;
-  color: #020617;
-  box-shadow: 0 10px 20px rgba(255, 255, 255, 0.1);
+  background: var(--text-primary);
+  color: #0d0b0a;
+  box-shadow: 0 10px 20px rgba(0, 0, 0, 0.3);
 }
 
 .premium-btn-primary:hover {
-  background: var(--accent-blue);
+  background: var(--accent-red);
   color: white;
   transform: translateY(-2px);
-  box-shadow: 0 15px 30px var(--accent-blue-glow);
+  box-shadow: 0 15px 30px var(--accent-red-glow);
 }
 
 .premium-btn-secondary {

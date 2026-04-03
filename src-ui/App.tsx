@@ -55,17 +55,12 @@ const App: React.FC = () => {
   const [syncing, setSyncing] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [activeTab, setActiveTab] = useState<'active' | 'trash'>('active');
-  const [showDependencies, setShowDependencies] = useState(false);
   const [notification, setNotification] = useState<Notification | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
+  const [modalData, setModalData] = useState<any>(null);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [rememberConflict, setRememberConflict] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [modalData, setModalData] = useState<{
-    title: string;
-    message: string;
-    remediation: string;
-    can_bypass?: boolean;
-    originalAction?: { endpoint: string; payload: any };
-  }>({ title: '', message: '', remediation: '' });
 
   const [settings, setSettings] = useState({ workshop_path: '', server_config_path: '' });
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
@@ -351,6 +346,61 @@ const App: React.FC = () => {
     }
   };
 
+  const handleBulkAction = async (endpoint: string, bypass: boolean = false, bypassFingerprints: string[] = []) => {
+    if (selectedIds.length === 0) return;
+    
+    setLoading(true);
+    try {
+      const resp = await fetch(`${API_BASE}/api/${endpoint}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          mod_ids: selectedIds, 
+          bypass_conflicts: bypass,
+          fingerprints: bypassFingerprints
+        }),
+      });
+      const data = await resp.json();
+
+      if (data.status === 'conflict_detected') {
+        setModalData({
+          title: "⚠️ Multiple Conflicts Detected",
+          message: `Found ${data.conflicts.length} unique conflicts across your selection.`,
+          conflicts: data.conflicts,
+          can_bypass: true,
+          isBulk: true,
+          originalAction: { endpoint, mod_ids: selectedIds }
+        });
+        setModalOpen(true);
+        return;
+      }
+
+      if (data.status === 'error') {
+        showNotification(data.message, 'warning');
+      } else {
+        showNotification(data.message || 'Bulk action completed', 'success');
+        setSelectedIds([]);
+      }
+      await fetchMods();
+    } catch (err) {
+      console.error(`Bulk action ${endpoint} failed:`, err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleIgnoreFingerprint = async (fp: string) => {
+    try {
+      await fetch(`${API_BASE}/api/ignore-fingerprint`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fingerprint: fp }),
+      });
+    } catch (err) {
+      console.error('Failed to ignore fingerprint:', err);
+    }
+  };
+
   const saveSettings = async (newSettings: any) => {
     try {
       const resp = await fetch(`${API_BASE}/api/settings`, {
@@ -387,14 +437,6 @@ const App: React.FC = () => {
     const matchesSearch = m.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
                           m.id.toLowerCase().includes(searchTerm.toLowerCase());
     
-    // Um mod é considerado dependência implícita se Alguém requer ele.
-    // Omitimos se for dependência E a visualização estiver desligada.
-    const isDependency = dependencyMap[m.id]?.required_by?.length > 0;
-    
-    if (!showDependencies && isDependency) {
-      return false;
-    }
-
     return matchesSearch;
   });
 
@@ -541,7 +583,7 @@ const App: React.FC = () => {
       <header className="header">
         <div className="brand-section">
           <span className="brand-subtitle">Project Zomboid</span>
-          <h1>HellDrinx - Tool<span style={{ color: '#3b82f6' }}> | ModManager</span></h1>
+          <h1>HellDrinx - Tool<span style={{ color: '#d97706' }}> | ModManager</span></h1>
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -555,7 +597,7 @@ const App: React.FC = () => {
             }}
             style={{
               background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)',
-              color: '#94a3b8', cursor: 'pointer', padding: '10px', borderRadius: '12px',
+              color: 'var(--text-muted)', cursor: 'pointer', padding: '10px', borderRadius: '12px',
               display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s'
             }}
             title="Application Settings"
@@ -569,8 +611,8 @@ const App: React.FC = () => {
               whileTap={{ scale: 0.95 }}
               onClick={() => setProfileMenuOpen(!profileMenuOpen)}
               style={{
-                background: 'rgba(59, 130, 246, 0.15)', border: '1px solid rgba(59, 130, 246, 0.3)',
-                color: '#3b82f6', cursor: 'pointer', padding: '10px 16px', borderRadius: '12px',
+                background: 'rgba(217, 119, 6, 0.1)', color: '#d97706', border: '1px solid rgba(217, 119, 6, 0.2)',
+                cursor: 'pointer', padding: '10px 16px', borderRadius: '12px',
                 display: 'flex', alignItems: 'center', gap: '8px', transition: 'all 0.2s'
               }}
               title="Switch Profiles"
@@ -594,7 +636,7 @@ const App: React.FC = () => {
                      position: 'absolute', top: 'calc(100% + 8px)', right: 0, width: '220px',
                      borderRadius: '16px', padding: '8px', zIndex: 100,
                      boxShadow: '0 10px 30px rgba(0,0,0,0.5)',
-                     border: '1px solid rgba(59, 130, 246, 0.3)'
+                     border: '1px solid rgba(217, 119, 6, 0.3)'
                    }}
                 >
                   <div style={{ maxHeight: '200px', overflowY: 'auto', marginBottom: '8px' }}>
@@ -657,8 +699,8 @@ const App: React.FC = () => {
               whileTap={{ scale: 0.9 }}
               onClick={() => setIsSidebarOpen(true)}
               style={{
-                background: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.2)',
-                color: '#ef4444', cursor: 'pointer', padding: '10px', borderRadius: '12px',
+                background: 'rgba(139, 38, 18, 0.15)', color: '#8b2612', border: '1px solid rgba(139, 38, 18, 0.3)',
+                cursor: 'pointer', padding: '10px', borderRadius: '12px',
                 display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative'
               }}
               title="View Issues"
@@ -737,53 +779,44 @@ const App: React.FC = () => {
           onClick={() => setBackupModalOpen(true)}
           className="glass-btn"
           style={{ 
-            fontSize: '11px', padding: '10px 16px', background: 'rgba(168, 85, 247, 0.1)', 
-            borderColor: 'rgba(168, 85, 247, 0.3)', color: '#c084fc'
+            fontSize: '11px', padding: '10px 16px', background: 'rgba(217, 119, 6, 0.1)', 
+            borderColor: 'rgba(217, 119, 6, 0.3)', color: '#d97706'
           }}
         >
           <History size={14} />
           SERVER BACKUP
         </motion.button>
 
-        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-          <button
-            onClick={() => setShowDependencies(!showDependencies)}
-            style={{
-              padding: '8px 12px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.05)', cursor: 'pointer',
-              background: showDependencies ? 'rgba(168, 85, 247, 0.15)' : 'rgba(15, 23, 42, 0.6)',
-              color: showDependencies ? '#c084fc' : '#64748b',
-              fontSize: '11px', fontWeight: 'bold', transition: 'all 0.2s', display: 'flex', alignItems: 'center', gap: '6px'
-            }}
-            title="Mostra mods transitórios que são apenas bibliotecas ou dependências de outros."
-          >
-            <Package size={14} />
-            {showDependencies ? 'Hide Dependencies' : 'Show Dependencies'}
-          </button>
 
-          <div style={{ display: 'flex', gap: '4px', background: 'rgba(15, 23, 42, 0.6)', padding: '4px', borderRadius: '12px', flexShrink: 0 }}>
-            <button
-              onClick={() => setActiveTab('active')}
-              style={{
-                padding: '8px 16px', borderRadius: '8px', border: 'none', cursor: 'pointer',
-                background: activeTab === 'active' ? '#3b82f6' : 'transparent',
-                color: activeTab === 'active' ? 'white' : '#94a3b8',
-                fontSize: '11px', fontWeight: 'bold', transition: 'all 0.2s'
-              }}
-            >
-              Active
-            </button>
-            <button
-              onClick={() => setActiveTab('trash')}
-              style={{
-                padding: '8px 16px', borderRadius: '8px', border: 'none', cursor: 'pointer',
-                background: activeTab === 'trash' ? '#ef4444' : 'transparent',
-                color: activeTab === 'trash' ? 'white' : '#94a3b8',
-                fontSize: '11px', fontWeight: 'bold', transition: 'all 0.2s'
-              }}
-            >
-              Uninstalled
-            </button>
-          </div>
+        <div style={{ display: 'flex', gap: '4px', background: 'rgba(15, 23, 42, 0.6)', padding: '4px', borderRadius: '12px', flexShrink: 0, marginLeft: 'auto' }}>
+          <button
+            onClick={() => {
+              setActiveTab('active');
+              setSelectedIds([]);
+            }}
+            style={{
+              padding: '8px 16px', borderRadius: '8px', border: 'none', cursor: 'pointer',
+              background: activeTab === 'active' ? '#0891b2' : 'transparent',
+              color: activeTab === 'active' ? 'white' : '#a6998a',
+              fontSize: '11px', fontWeight: 'bold', transition: 'all 0.2s'
+            }}
+          >
+            Active
+          </button>
+          <button
+            onClick={() => {
+              setActiveTab('trash');
+              setSelectedIds([]);
+            }}
+            style={{
+              padding: '8px 16px', borderRadius: '8px', border: 'none', cursor: 'pointer',
+              background: activeTab === 'trash' ? '#8b2612' : 'transparent',
+              color: activeTab === 'trash' ? 'white' : '#a6998a',
+              fontSize: '11px', fontWeight: 'bold', transition: 'all 0.2s'
+            }}
+          >
+            Uninstalled
+          </button>
         </div>
       </div>
 
@@ -842,8 +875,8 @@ const App: React.FC = () => {
               style={{
                 minHeight: isLarge ? '90px' : '65px',
                 height: 'auto',
-                border: isLarge ? '1px solid #3b82f6' : '1px solid rgba(255,255,255,0.1)',
-                                boxShadow: isLarge ? '0 4px 20px rgba(59, 130, 246, 0.15)' : 'none',
+                border: isLarge ? '1px solid #d97706' : '1px solid rgba(255,255,255,0.1)',
+                                boxShadow: isLarge ? '0 4px 20px rgba(217, 119, 6, 0.15)' : 'none',
                                 background: isLarge ? 'rgba(15, 23, 42, 0.8)' : 'rgba(15, 23, 42, 0.4)',
                                 marginLeft: !isLarge && group.length > 1 ? '32px' : '0',
                                 marginTop: idx > 0 ? '4px' : '0',
@@ -865,7 +898,7 @@ const App: React.FC = () => {
                                   <div className="mod-name" style={{ color: isLarge ? '#fff' : '#94a3b8', fontSize: isLarge ? '16px' : '14px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{mod.name}</div>
                                   {isCore && (
                                     <div style={{ display: 'flex', gap: '4px', flexShrink: 0 }}>
-                                      <span style={{ fontSize: '8px', background: 'linear-gradient(90deg, #3b82f6, #60a5fa)', color: 'white', padding: '1px 5px', borderRadius: '3px', fontWeight: 'bold' }}>CORE</span>
+                                      <span style={{ fontSize: '8px', background: 'linear-gradient(90deg, #d97706, #fbbf24)', color: 'black', padding: '1px 5px', borderRadius: '3px', fontWeight: 'bold' }}>CORE</span>
                                       <span style={{ fontSize: '8px', background: 'rgba(255,255,255,0.1)', color: '#94a3b8', padding: '1px 5px', borderRadius: '3px', fontWeight: 'bold' }}>
                                         +{group.length - 1} SHARDS
                                       </span>
@@ -880,7 +913,7 @@ const App: React.FC = () => {
                                   )}
                                 </div>
                                 <div className="mod-meta">
-                                  <span>ID: <code style={{ color: isCore ? '#3b82f6' : '#475569' }}>{mod.id}</code></span>
+                                  <span>ID: <code style={{ color: isCore ? '#d97706' : '#475569' }}>{mod.id}</code></span>
                                 </div>
             
                                 {/* Exibição de Dependências */}
@@ -913,7 +946,7 @@ const App: React.FC = () => {
                                   <button
                                     className="btn"
                                     onClick={() => setExpandedGroups(prev => ({ ...prev, [workshopId]: !isExpanded }))}
-                                    style={{ background: 'rgba(59, 130, 246, 0.1)', color: '#3b82f6', borderRadius: '8px', padding: '8px' }}
+                                    style={{ background: 'rgba(217, 119, 6, 0.1)', color: '#d97706', borderRadius: '8px', padding: '8px' }}
                                   >
                                     {isExpanded ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
                                   </button>
@@ -1020,6 +1053,33 @@ const App: React.FC = () => {
                                 display: 'flex'
                               }}
                             >
+                              {/* Enhanced Selection Checkbox */}
+                              <div 
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setSelectedIds(prev => 
+                                    prev.includes(mod.id) 
+                                      ? prev.filter(id => id !== mod.id) 
+                                      : [...prev, mod.id]
+                                  );
+                                }}
+                                style={{
+                                  position: 'absolute', left: '8px', top: '8px', zIndex: 100,
+                                  width: '26px', height: '26px', borderRadius: '8px',
+                                  border: `2px solid ${selectedIds.includes(mod.id) ? '#0891b2' : 'rgba(255,255,255,0.5)'}`,
+                                  background: selectedIds.includes(mod.id) ? '#0891b2' : 'rgba(15, 23, 42, 0.95)',
+                                  boxShadow: '0 4px 12px rgba(0,0,0,0.6)',
+                                  cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                  transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)'
+                                }}
+                              >
+                                {selectedIds.includes(mod.id) ? (
+                                   <div style={{ width: '10px', height: '10px', background: 'white', borderRadius: '2px', boxShadow: '0 0 5px rgba(255,255,255,0.5)' }} />
+                                ) : (
+                                   <div style={{ width: '4px', height: '4px', background: 'rgba(255,255,255,0.3)', borderRadius: '50%' }} />
+                                )}
+                              </div>
+
                               <img
                                 src={mod.poster_url ? `${API_BASE}${mod.poster_url}` : 'https://placehold.co/120x120/1e293b/64748b?text=PZ'}
                                 alt={mod.name}
@@ -1038,7 +1098,7 @@ const App: React.FC = () => {
                                     </div>
                                   )}
                                   {isTrash ? (
-                                      <span style={{ fontSize: '9px', background: '#ef4444', color: 'white', padding: '1px 6px', borderRadius: '4px', fontWeight: 'bold' }}>TRASH BIN</span>
+                                      <span style={{ fontSize: '9px', background: '#8b2612', color: 'white', padding: '1px 6px', borderRadius: '4px', fontWeight: 'bold' }}>TRASH BIN</span>
                                   ) : (
                                       <span style={{ fontSize: '9px', background: '#334155', color: '#94a3b8', padding: '1px 6px', borderRadius: '4px', fontWeight: 'bold' }}>INACTIVE</span>
                                   )}
@@ -1110,20 +1170,20 @@ const App: React.FC = () => {
                                   )}
                                 
                                 {!isTrash ? (
-                                  <button
-                                    className="btn btn-primary"
-                                    style={{ padding: '8px 16px', borderRadius: '8px', display: 'flex', alignItems: 'center', gap: '8px' }}
-                                    onClick={() => handleAction('activate-mod', { mod_id: mod.id, workshop_id: mod.workshop_id })}
-                                  >
-                                    <Package size={16} />
-                                    <span style={{ fontSize: '12px', fontWeight: 'bold' }}>ACTIVATE</span>
-                                  </button>
+                                    <button
+                                      className="btn"
+                                      style={{ padding: '8px 16px', borderRadius: '8px', display: 'flex', alignItems: 'center', gap: '8px', background: 'linear-gradient(135deg, #0891b2 0%, #059669 100%)', color: 'white', border: 'none', boxShadow: '0 0 15px rgba(5, 150, 105, 0.3)' }}
+                                      onClick={() => handleAction('activate-mod', { mod_id: mod.id, workshop_id: mod.workshop_id })}
+                                    >
+                                      <Package size={16} />
+                                      <span style={{ fontSize: '12px', fontWeight: 'bold' }}>ACTIVATE</span>
+                                    </button>
                                 ) : (
-                                  <button
-                                    className="btn"
-                                    style={{ background: 'rgba(59, 130, 246, 0.1)', color: '#3b82f6', padding: '8px 16px', borderRadius: '8px', display: 'flex', alignItems: 'center', gap: '8px' }}
-                                    onClick={() => handleAction('restore', { workshop_id: mod.workshop_id })}
-                                  >
+                                    <button
+                                      className="btn"
+                                      style={{ background: 'linear-gradient(135deg, #0891b2 0%, #059669 100%)', color: 'white', border: 'none', boxShadow: '0 0 10px rgba(5, 150, 105, 0.2)', padding: '8px 16px', borderRadius: '8px', display: 'flex', alignItems: 'center', gap: '8px' }}
+                                      onClick={() => handleAction('restore', { workshop_id: mod.workshop_id })}
+                                    >
                                     <History size={16} />
                                     <span style={{ fontSize: '12px', fontWeight: 'bold' }}>RESTORE</span>
                                   </button>
@@ -1133,7 +1193,7 @@ const App: React.FC = () => {
                                   <button
                                     className="btn"
                                     title="Mover pasta física para Lixeira (Archive)"
-                                    style={{ background: 'rgba(239, 68, 68, 0.1)', color: '#ef4444', borderRadius: '8px', padding: '8px' }}
+                                    style={{ background: 'rgba(139, 38, 18, 0.1)', color: '#8b2612', borderRadius: '8px', padding: '8px' }}
                                     onClick={() => handleAction('delete-volume', { mod_id: mod.id, workshop_id: mod.workshop_id, name: mod.name })}
                                   >
                                     <Trash2 size={18} />
@@ -1259,6 +1319,26 @@ const App: React.FC = () => {
                      spellCheck={false}
                   />
                 </div>
+
+                <div style={{ marginTop: '24px', padding: '16px', background: 'rgba(239, 68, 68, 0.05)', borderRadius: '16px', border: '1px solid rgba(239, 68, 68, 0.1)' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div>
+                      <h4 style={{ fontSize: '12px', color: '#fca5a5', margin: 0, fontWeight: 'bold' }}>CONFLICT WHITELIST</h4>
+                      <p style={{ fontSize: '10px', color: '#64748b', margin: '4px 0 0' }}>Reset all previously 'ignored' file conflicts.</p>
+                    </div>
+                    <button
+                      onClick={async () => {
+                        try {
+                          const resp = await fetch(`${API_BASE}/api/clear-ignored-conflicts`, { method: 'POST' });
+                          if (resp.ok) showNotification('All ignored conflicts have been cleared.', 'success');
+                        } catch (e) { console.error(e); }
+                      }}
+                      style={{ background: 'transparent', border: '1px solid rgba(239, 68, 68, 0.3)', color: '#ef4444', borderRadius: '8px', fontSize: '10px', padding: '8px 16px', cursor: 'pointer', fontWeight: 'bold' }}
+                    >
+                      CLEAR WHITELIST
+                    </button>
+                  </div>
+                </div>
               </div>
 
               <div style={{ display: 'flex', gap: '12px', marginTop: '40px' }}>
@@ -1285,44 +1365,38 @@ const App: React.FC = () => {
         )}
       </AnimatePresence>
 
-      {/* Notification Toast */}
-      <AnimatePresence>
-        {notification && (
-          <motion.div
-            initial={{ opacity: 0, y: 50 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.8 }}
-            style={{
-              position: 'fixed', bottom: '24px', left: '50%', transform: 'translateX(-50%)',
-              zIndex: 1000, background: '#1e293b', border: '1px solid #334155',
-              padding: '12px 24px', borderRadius: '12px', boxShadow: '0 10px 25px rgba(0,0,0,0.5)',
-              display: 'flex', alignItems: 'center', gap: '12px', color: 'white'
-            }}
-          >
-            <AlertCircle size={18} color={notification.type === 'warning' ? '#ef4444' : '#3b82f6'} />
-            <span style={{ fontSize: '14px', fontWeight: 500 }}>{notification.message}</span>
-          </motion.div>
-        )}
-      </AnimatePresence>
 
       {/* Footer Info */}
       <footer style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', color: '#475569', fontSize: '0.70rem', padding: '8px 16px', background: 'rgba(15, 23, 42, 0.5)', borderTop: '1px solid rgba(255,255,255,0.05)' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
           <span>v2.1 NODE PERFORMANCE EDITION</span>
-          <button
-            onClick={syncMods}
-            disabled={syncing}
-            style={{
-              background: 'transparent', border: '1px solid rgba(255,255,255,0.1)',
-              color: '#94a3b8', borderRadius: '4px', padding: '2px 8px',
-              fontSize: '10px', display: 'flex', alignItems: 'center', gap: '4px',
-              cursor: syncing ? 'not-allowed' : 'pointer'
-            }}
-          >
-            <RefreshCw size={10} className={syncing ? 'animate-spin' : ''} />
-            {syncing ? 'SYNCING...' : 'Manual Sync'}
-          </button>
         </div>
+
+        <motion.button
+          whileHover={{ scale: 1.05, boxShadow: '0 0 15px rgba(5, 150, 105, 0.3)' }}
+          whileTap={{ scale: 0.95 }}
+          onClick={syncMods}
+          disabled={syncing}
+          style={{
+            fontSize: '11px',
+            padding: '6px 20px',
+            background: 'linear-gradient(135deg, #d97706 0%, #8b2612 100%)',
+            color: 'white',
+            border: 'none',
+            borderRadius: '12px',
+            boxShadow: '0 2px 10px rgba(139, 38, 18, 0.4)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            fontWeight: 'bold',
+            opacity: syncing ? 0.7 : 1,
+            cursor: syncing ? 'not-allowed' : 'pointer',
+            zIndex: 10
+          }}
+        >
+          <RefreshCw size={14} className={syncing ? 'animate-spin' : ''} />
+          {syncing ? 'SYNCING...' : 'Sync Now !'}
+        </motion.button>
         <div style={{ display: 'flex', gap: '16px' }}>
           <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }} title="Número de inscrições do Workshop"><Package size={12} /> {new Set(mods.map(m => m.workshop_id)).size} Subscribed</span>
           <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}><Trash2 size={12} /> {trash.length} Archived</span>
@@ -1370,7 +1444,7 @@ const App: React.FC = () => {
                         onClick={() => setActiveSidebarTab('conflict')}
                         style={{ 
                           flexGrow: 1, padding: '10px', borderRadius: '10px', border: 'none', cursor: 'pointer',
-                          background: activeSidebarTab === 'conflict' ? '#ef4444' : 'transparent',
+                          background: activeSidebarTab === 'conflict' ? '#8b2612' : 'transparent',
                           color: activeSidebarTab === 'conflict' ? 'white' : '#94a3b8',
                           fontSize: '11px', fontWeight: 'bold', transition: 'all 0.2s',
                           display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px'
@@ -1383,7 +1457,7 @@ const App: React.FC = () => {
                         onClick={() => setActiveSidebarTab('missing')}
                         style={{ 
                           flexGrow: 1, padding: '10px', borderRadius: '10px', border: 'none', cursor: 'pointer',
-                          background: activeSidebarTab === 'missing' ? '#3b82f6' : 'transparent',
+                          background: activeSidebarTab === 'missing' ? '#d97706' : 'transparent',
                           color: activeSidebarTab === 'missing' ? 'white' : '#94a3b8',
                           fontSize: '11px', fontWeight: 'bold', transition: 'all 0.2s',
                           display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px'
@@ -1418,7 +1492,7 @@ const App: React.FC = () => {
                                 className={activeSidebarTab === 'conflict' ? "btn-primary" : "btn-secondary"}
                                 style={{ 
                                   padding: '6px 12px', fontSize: '10px', width: '100%', justifyContent: 'center',
-                                  ...(activeSidebarTab === 'missing' ? { background: 'rgba(59, 130, 246, 0.1)', border: '1px solid rgba(59, 130, 246, 0.2)', color: '#3b82f6' } : {})
+                                  ...(activeSidebarTab === 'missing' ? { background: 'rgba(8, 145, 178, 0.1)', border: '1px solid rgba(8, 145, 178, 0.2)', color: '#0891b2' } : {})
                                 }}
                                 onClick={() => scrollToMod(issue.modId)}
                               >
@@ -1652,8 +1726,187 @@ const App: React.FC = () => {
               display: 'flex', alignItems: 'center', gap: '10px'
             }}
           >
-            {notification.type === 'success' ? <Package size={18} /> : <AlertTriangle size={18} />}
-            {notification.message}
+            {notification?.type === 'success' ? <Package size={18} /> : <AlertTriangle size={18} />}
+            {notification?.message}
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Floating Action Bar (Bulk Actions) */}
+      <AnimatePresence>
+        {selectedIds.length > 0 && (
+          <motion.div
+            initial={{ y: 100, x: '-50%', opacity: 0 }}
+            animate={{ y: 0, x: '-50%', opacity: 1 }}
+            exit={{ y: 100, x: '-50%', opacity: 0 }}
+            style={{
+              position: 'fixed', bottom: '80px', left: '50%', zIndex: 2000,
+              background: 'rgba(13, 11, 10, 0.95)', border: '1px solid #0891b2',
+              backdropFilter: 'blur(12px)', padding: '12px 24px', borderRadius: '24px',
+              boxShadow: '0 10px 40px rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', gap: '20px'
+            }}
+          >
+            <div style={{ display: 'flex', flexDirection: 'column' }}>
+              <span style={{ fontSize: '12px', fontWeight: 'bold', color: '#0891b2' }}>{selectedIds.length} SELECTED</span>
+              <span style={{ fontSize: '10px', color: '#64748b' }}>MODS ENQUEUED</span>
+            </div>
+            <div style={{ width: '1px', height: '30px', background: 'rgba(255,255,255,0.1)' }} />
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <button 
+                className="premium-btn-action"
+                style={{ padding: '8px 16px', fontSize: '11px', background: 'linear-gradient(135deg, #0891b2 0%, #059669 100%)', color: 'white', border: 'none', boxShadow: '0 0 15px rgba(5, 150, 105, 0.3)' }}
+                onClick={() => handleBulkAction('activate-bulk')}
+              >
+                PROCEED TO ACTIVATE
+              </button>
+              <button 
+                onClick={() => setSelectedIds([])}
+                style={{ padding: '8px 16px', fontSize: '11px', background: 'rgba(255,255,255,0.05)', color: '#94a3b8', border: 'none', borderRadius: '12px', cursor: 'pointer' }}
+              >
+                DESELECT ALL
+              </button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Advanced Conflict Modal */}
+      <AnimatePresence>
+        {modalOpen && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="modal-overlay"
+            style={{ 
+              background: 'rgba(2, 6, 23, 0.9)', 
+              backdropFilter: 'blur(10px)',
+              padding: '20px'
+            }}
+          >
+            <motion.div
+              initial={{ scale: 0.9, y: 20 }}
+              animate={{ scale: 1, y: 0 }}
+              className="glass"
+              style={{
+                width: '100%', maxWidth: '500px', padding: '40px', borderRadius: '32px',
+                textAlign: 'center', border: '1px solid rgba(255,255,255,0.05)',
+                position: 'relative', overflow: 'hidden'
+              }}
+            >
+              <div style={{ position: 'absolute', top: '-50px', left: '50%', transform: 'translateX(-50%)', opacity: 0.05 }}>
+                <AlertTriangle size={300} color="#f59e0b" />
+              </div>
+
+              <div style={{ position: 'relative', zIndex: 1 }}>
+                <div style={{ 
+                  width: '80px', height: '80px', borderRadius: '24px', 
+                  background: 'rgba(245, 158, 11, 0.1)', display: 'flex', 
+                  alignItems: 'center', justifyContent: 'center', margin: '0 auto 24px',
+                  boxShadow: '0 0 30px rgba(245, 158, 11, 0.15)'
+                }}>
+                  <AlertTriangle size={40} color="#f59e0b" />
+                </div>
+
+                <h1 style={{ fontSize: '24px', fontWeight: '900', color: '#fff', marginBottom: '8px', letterSpacing: '-0.5px' }}>
+                  {modalData?.title || "System Alert"}
+                </h1>
+                
+                {modalData?.isBulk ? (
+                  <div style={{ marginBottom: '24px' }}>
+                    <div style={{ background: 'rgba(15, 23, 42, 0.6)', padding: '16px', borderRadius: '16px', textAlign: 'left', border: '1px solid rgba(255,255,255,0.05)' }}>
+                      <p style={{ color: '#94a3b8', fontSize: '13px', marginBottom: '12px' }}>
+                        Found <strong>{modalData.conflicts.length} unique conflicts</strong> across your selection.
+                      </p>
+                      <div style={{ maxHeight: '200px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                        {modalData.conflicts.map((c: any, i: number) => (
+                          <div key={i} style={{ padding: '10px', background: 'rgba(255,255,255,0.03)', borderRadius: '10px', fontSize: '11px', color: '#cbd5e1', border: '1px solid rgba(255,255,255,0.05)' }}>
+                             Conflict between <strong>{c.mod_id}</strong> and <strong>{c.conflicting_with}</strong>
+                             <div style={{ opacity: 0.6, marginTop: '4px' }}>{c.message}</div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <p style={{ color: '#94a3b8', fontSize: '14px', marginBottom: '24px', lineHeight: '1.6' }}>
+                      {modalData?.message}
+                    </p>
+
+                    <div style={{ background: 'rgba(15, 23, 42, 0.6)', padding: '20px', borderRadius: '20px', marginBottom: '24px', border: '1px solid rgba(255,255,255,0.05)', textAlign: 'left' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '12px', color: '#60a5fa' }}>
+                        <Info size={16} />
+                        <span style={{ fontSize: '12px', fontWeight: 'bold', textTransform: 'uppercase' }}>Recommended Action</span>
+                      </div>
+                      <p style={{ fontSize: '13px', color: '#cbd5e1', lineHeight: '1.5' }}>
+                        {modalData?.remediation}
+                      </p>
+                    </div>
+                  </>
+                )}
+
+                {modalData?.can_bypass && (
+                  <div 
+                    onClick={() => setRememberConflict(!rememberConflict)}
+                    style={{ 
+                      display: 'flex', alignItems: 'center', gap: '10px', 
+                      justifyContent: 'center', marginBottom: '32px', cursor: 'pointer',
+                      padding: '12px', borderRadius: '16px', background: rememberConflict ? 'rgba(59, 130, 246, 0.1)' : 'transparent',
+                      transition: 'all 0.2s'
+                    }}
+                  >
+                     <div style={{ 
+                        width: '18px', height: '18px', borderRadius: '5px', 
+                        border: '2px solid #3b82f6', background: rememberConflict ? '#3b82f6' : 'transparent',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center'
+                     }}>
+                       {rememberConflict && <div style={{ width: '8px', height: '8px', background: 'white', borderRadius: '1px' }} />}
+                     </div>
+                     <span style={{ fontSize: '12px', color: rememberConflict ? '#fff' : '#64748b', fontWeight: 'bold' }}>
+                       Ignore future identical conflicts for this mod set
+                     </span>
+                  </div>
+                )}
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                  {modalData?.can_bypass && (
+                    <button
+                      className="premium-btn-action"
+                      style={{ padding: '16px', background: 'linear-gradient(135deg, #f59e0b, #fbbf24)', color: '#000' }}
+                      onClick={() => {
+                        if (rememberConflict) {
+                          if (modalData.isBulk) {
+                            modalData.conflicts.forEach((c: any) => handleIgnoreFingerprint(c.fingerprint));
+                          } else if (modalData.fingerprint) {
+                            handleIgnoreFingerprint(modalData.fingerprint);
+                          }
+                        }
+                        
+                        if (modalData.isBulk) {
+                           handleBulkAction(modalData.originalAction.endpoint, true, modalData.conflicts.map((c: any) => c.fingerprint));
+                        } else {
+                           handleAction(modalData.originalAction.endpoint, modalData.originalAction.payload, true);
+                        }
+                        setModalOpen(false);
+                      }}
+                    >
+                      PROCEED ANYWAY (OVERWRITE)
+                    </button>
+                  )}
+                  <button
+                    onClick={() => setModalOpen(false)}
+                    style={{ 
+                      background: 'white', color: '#000', border: 'none', 
+                      padding: '16px', borderRadius: '16px', cursor: 'pointer', 
+                      fontWeight: '900', fontSize: '13px' 
+                    }}
+                  >
+                    CANCEL & GO BACK
+                  </button>
+                </div>
+              </div>
+            </motion.div>
           </motion.div>
         )}
       </AnimatePresence>
