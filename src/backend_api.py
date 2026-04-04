@@ -1,13 +1,18 @@
+import sys
+import os
+import uvicorn
+import asyncio
+import urllib.parse
+
+# Add project root to sys.path
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+
 from typing import List, Optional
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from src.logic.manager import PZModManager, TRASH_PATH, SORTING_RULES_FILE
-import os
-import uvicorn
-import asyncio
-import urllib.parse
 
 app = FastAPI(title="HellDrinx - Tool (ModManager)")
 manager = PZModManager()
@@ -44,7 +49,11 @@ class RawRulesAction(BaseModel):
     content: str
 
 class ProfileAction(BaseModel):
-    name: str
+    name: Optional[str] = ""
+    is_community: Optional[bool] = False
+    method: Optional[str] = "full"
+    src_path: Optional[str] = None
+    target_name: Optional[str] = None
 
 class BackupAction(BaseModel):
     zomboid_path: str
@@ -181,10 +190,13 @@ async def get_raw_sorting_rules():
 @app.post("/api/sorting-rules/raw")
 async def save_raw_sorting_rules(action: RawRulesAction):
     try:
+        # Escreve o conteúdo bruto preservando comentários e formatação
         with open(SORTING_RULES_FILE, "w", encoding="utf-8") as f:
             f.write(action.content)
-        # Notify manager to reload rules
+        
+        # Apenas recarrega para a memória do manager
         manager._load_sorting_rules()
+        
         return {"status": "success"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -217,7 +229,7 @@ async def deactivate_all():
 # --- PROFILES ---
 @app.get("/api/profiles")
 async def list_profiles():
-    return {"profiles": manager.list_profiles()}
+    return manager.list_profiles()
 
 @app.post("/api/profiles/save")
 async def save_profile(action: ProfileAction):
@@ -225,11 +237,19 @@ async def save_profile(action: ProfileAction):
 
 @app.post("/api/profiles/load")
 async def load_profile(action: ProfileAction):
-    return manager.load_profile(action.name)
+    return manager.load_profile_advanced(action.name, action.is_community, action.method)
 
 @app.post("/api/profiles/delete")
 async def delete_profile(action: ProfileAction):
-    return manager.delete_profile(action.name)
+    return manager.delete_profile(action.name, action.is_community)
+
+@app.post("/api/profiles/import")
+async def import_profile(action: ProfileAction):
+    return manager.import_profile_from_path(action.src_path, action.is_community, action.target_name)
+
+@app.get("/api/profiles/path")
+async def get_profiles_path(is_community: bool = False):
+    return {"path": manager.get_profiles_path(is_community)}
 
 # --- BACKUP ---
 @app.post("/api/backup")

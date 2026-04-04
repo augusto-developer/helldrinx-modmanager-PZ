@@ -1,5 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {
+  Plus,
   RefreshCw,
   Trash2,
   Search,
@@ -19,7 +20,12 @@ import {
   Database,
   Save,
   Download,
-  Trash
+  Trash,
+  Zap,
+  Play,
+  Copy,
+  FileText,
+  UploadCloud
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -69,10 +75,28 @@ const App: React.FC = () => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [highlightedMod, setHighlightedMod] = useState<string | null>(null);
   const [activeSidebarTab, setActiveSidebarTab] = useState<'conflict' | 'missing'>('conflict');
-  const [profiles, setProfiles] = useState<string[]>([]);
+  const [profiles, setProfiles] = useState<{ user: string[], community: string[] }>({ user: [], community: [] });
   const [profilesOpen, setProfilesOpen] = useState(false);
-  const [profileMenuOpen, setProfileMenuOpen] = useState(false);
-  const [selectedProfile, setSelectedProfile] = useState<string | null>(null);
+  const [selectedProfile, setSelectedProfile] = useState<{ name: string, isCommunity: boolean } | null>(null);
+  const [lastLoadedMods, setLastLoadedMods] = useState<string[]>([]);
+
+  const isProfileDirty = useMemo(() => {
+    if (!selectedProfile || lastLoadedMods.length === 0) return false;
+    if (serverMods.length !== lastLoadedMods.length) return true;
+    const sortedServer = [...serverMods].sort();
+    const sortedLast = [...lastLoadedMods].sort();
+    return sortedServer.some((mod, idx) => mod !== sortedLast[idx]);
+  }, [serverMods, lastLoadedMods, selectedProfile]);
+
+  // New States for Simplified Presets (H.I.P. v2)
+  const [isDragging, setIsDragging] = useState(false);
+  const [isProcessingProfile, setIsProcessingProfile] = useState(false);
+  const [customPresetName, setCustomPresetName] = useState<string>("");
+  const [isNamingNew, setIsNamingNew] = useState(false);
+  const [pendingImport, setPendingImport] = useState<{ path: string, name: string } | null>(null);
+  const [importMethod, setImportMethod] = useState<'full' | 'partial'>('partial');
+  const [isEditingPresets, setIsEditingPresets] = useState(false);
+
   const [backupLoading, setBackupLoading] = useState(false);
   const [backupModalOpen, setBackupModalOpen] = useState(false);
   const [zomboidPath, setZomboidPath] = useState<string>('');
@@ -117,11 +141,11 @@ const App: React.FC = () => {
   const scrollToMod = (id: string) => {
     setActiveTab('active');
     setIsSidebarOpen(false);
-    
+
     // If it's a sub-mod, ensure its group is expanded
     const mod = mods.find(m => m.id === id);
     if (mod && mod.workshop_id) {
-       setExpandedGroups(prev => ({ ...prev, [mod.workshop_id]: true }));
+      setExpandedGroups(prev => ({ ...prev, [mod.workshop_id]: true }));
     }
 
     setTimeout(() => {
@@ -176,63 +200,155 @@ const App: React.FC = () => {
 
   const fetchProfiles = async () => {
     try {
-      const resp = await fetch(`${API_BASE}/api/profiles`);
-      const data = await resp.json();
-      setProfiles(data.profiles || []);
+      const response = await fetch(`${API_BASE}/api/profiles`);
+      const data = await response.json();
+      setProfiles(data);
     } catch (err) {
       console.error('Error fetching profiles:', err);
     }
   };
 
-  const handleProfileSave = async (name: string) => {
-    if (!name) return;
+  const handleOpenProfilesFolder = async (isCommunity = false) => {
     try {
-      const resp = await fetch(`${API_BASE}/api/profiles/save`, {
+      const response = await fetch(`${API_BASE}/api/profiles/path?is_community=${isCommunity}`);
+      const data = await response.json();
+      if (data.path) {
+        await (window as any).electron.openFolderNative(data.path);
+      }
+    } catch (err) {
+      console.error('Error opening folder:', err);
+    }
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = () => {
+    setIsDragging(false);
+  };
+
+  const handleDrop = async (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+
+    const files = e.dataTransfer.files;
+    if (files && files.length > 0) {
+      const file = files[0];
+      if (file.name.endsWith('.ini')) {
+        const filePath = (file as any).path;
+
+        if (!filePath) {
+          showNotification('Could not detect file path from Drag & Drop. Please click to browse instead!', 'warning');
+          return;
+        }
+
+        // Use the custom name if provided, otherwise fallback to filename
+        const finalName = customPresetName.trim() || file.name.replace('.ini', '');
+        if (!customPresetName.trim()) setCustomPresetName(finalName);
+
+        setPendingImport({ path: filePath, name: finalName });
+        showNotification(`Modpack data detected! Applying to: ${finalName}`, 'info');
+      } else {
+        showNotification('Only .ini files are allowed!', 'warning');
+      }
+    }
+  };
+
+  const handleImportProfile = async (isCommunity = false) => {
+    try {
+      const filePath = await (window as any).electron.selectFile();
+      if (filePath) {
+        // Extract base name from path
+        const fileName = filePath.split(/[\\/]/).pop() || 'preset';
+        const cleanName = fileName.replace('.ini', '');
+
+        // Respect the name defined in Step 1
+        const finalName = customPresetName.trim() || cleanName;
+        if (!customPresetName.trim()) setCustomPresetName(finalName);
+
+        setPendingImport({ path: filePath, name: finalName });
+        showNotification(`Content selected: ${fileName}. Ready to apply!`, 'info');
+      }
+    } catch (err) {
+      console.error('Error selecting file:', err);
+    }
+  };
+
+  const handleProfileSave = async (profileName: string) => {
+    if (!profileName) return;
+    try {
+      const response = await fetch(`${API_BASE}/api/profiles/save`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name }),
+        body: JSON.stringify({ name: profileName })
       });
-      const data = await resp.json();
+      const data = await response.json();
       if (data.status === 'success') {
-        showNotification(data.message, 'success');
+        showNotification(`Preset "${profileName}" saved!`, 'success');
         fetchProfiles();
+        setLastLoadedMods([...serverMods]);
+        setSelectedProfile({ name: profileName, isCommunity: false });
       } else {
         showNotification(data.message, 'warning');
       }
     } catch (err) {
-      console.error('Save profile failed:', err);
+      showNotification(`Error saving preset: ${err}`, 'warning');
     }
   };
 
-  const handleProfileLoad = async (name: string) => {
+  const handleProfileLoad = async (profileName: string, isCommunity: boolean = false, method: 'full' | 'partial' = 'full') => {
     try {
       const resp = await fetch(`${API_BASE}/api/profiles/load`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name }),
+        body: JSON.stringify({ name: profileName, is_community: isCommunity, method }),
       });
       const data = await resp.json();
       if (data.status === 'success') {
-        showNotification(data.message, 'success');
-        setSelectedProfile(name);
-        await fetchMods(); // Refresh mod list for the new profile
+        showNotification(data.message.replace('Profile', 'Preset'), 'success');
+        setSelectedProfile({ name: profileName, isCommunity });
+
+        // AUTO-CLONE: If from community, save a local copy immediately
+        if (isCommunity) {
+          try {
+            await fetch(`${API_BASE}/api/profiles/save`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ name: profileName }),
+            });
+          } catch (e) {
+            console.error("Auto-clone error:", e);
+          }
+        }
+
+        // Synchronize both preset list and active mod state
+        await fetchProfiles();
+        await syncMods();
       } else {
         showNotification(data.message, 'warning');
       }
     } catch (err) {
-      console.error('Load profile failed:', err);
+      showNotification(`Load error: ${err}`, 'warning');
+    } finally {
+      // After sync, synchronize the baseline for manual change detection
+      setTimeout(() => {
+        setLastLoadedMods([...serverMods]);
+      }, 1000);
     }
   };
 
-  const handleProfileDelete = async (name: string) => {
+  const handleProfileDelete = async (name: string, isCommunity: boolean = false) => {
     try {
       const resp = await fetch(`${API_BASE}/api/profiles/delete`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name }),
+        body: JSON.stringify({ name, is_community: isCommunity }),
       });
       if (resp.ok) {
-        showNotification(`Profile '${name}' deleted.`, 'info');
+        showNotification(`Preset '${name}' removed.`, 'info');
+        if (selectedProfile?.name === name) setSelectedProfile(null);
         fetchProfiles();
       }
     } catch (err) {
@@ -305,8 +421,8 @@ const App: React.FC = () => {
     // --- Optimistic UI Update ---
     if (endpoint === 'delete-specific') {
       setServerMods(prev => prev.filter(id => id !== payload.mod_id));
-    } else if (endpoint === 'activate-mod' && !bypass) { 
-        // Only optimistic if not a bypass (bypass might fail for other reasons)
+    } else if (endpoint === 'activate-mod' && !bypass) {
+      // Only optimistic if not a bypass (bypass might fail for other reasons)
       setServerMods(prev => [...prev, payload.mod_id]);
     }
     // ... other optimistics ...
@@ -348,14 +464,14 @@ const App: React.FC = () => {
 
   const handleBulkAction = async (endpoint: string, bypass: boolean = false, bypassFingerprints: string[] = []) => {
     if (selectedIds.length === 0) return;
-    
+
     setLoading(true);
     try {
       const resp = await fetch(`${API_BASE}/api/${endpoint}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          mod_ids: selectedIds, 
+        body: JSON.stringify({
+          mod_ids: selectedIds,
           bypass_conflicts: bypass,
           fingerprints: bypassFingerprints
         }),
@@ -408,13 +524,13 @@ const App: React.FC = () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(newSettings),
       });
-      
+
       const rulesResp = await fetch(`${API_BASE}/api/sorting-rules/raw`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ content: rulesText }),
       });
-      
+
       if (resp.ok && rulesResp.ok) {
         setSettings(newSettings);
         showNotification('Settings and Rules saved successfully. Resyncing...', 'success');
@@ -434,16 +550,16 @@ const App: React.FC = () => {
   }, []);
 
   const filteredMods = mods.filter(m => {
-    const matchesSearch = m.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
-                          m.id.toLowerCase().includes(searchTerm.toLowerCase());
-    
+    const matchesSearch = m.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      m.id.toLowerCase().includes(searchTerm.toLowerCase());
+
     return matchesSearch;
   });
 
   const getDependencyStyle = (reqId: string) => {
     const isActive = serverMods.includes(reqId);
     const isDownloaded = mods.some(m => m.id === reqId) || trash.some(t => t.id === reqId);
-    
+
     if (isActive && isDownloaded) {
       return { color: '#4ade80', border: '1px solid rgba(74, 222, 128, 0.2)' };
     } else if (!isActive && isDownloaded) {
@@ -475,7 +591,7 @@ const App: React.FC = () => {
         const coreId = getCoreModId(group);
         groups[workshopId] = [
           ...group.filter(m => m.id === coreId),
-          ...group.filter(m => m.id !== coreId).sort((a,b) => a.name.localeCompare(b.name))
+          ...group.filter(m => m.id !== coreId).sort((a, b) => a.name.localeCompare(b.name))
         ];
       }
     }
@@ -485,11 +601,11 @@ const App: React.FC = () => {
 
   const getCoreModId = (group: Mod[]) => {
     if (group.length <= 1) return group[0]?.id;
-    
+
     // Heurística 1: O mod que outros no mesmo grupo requerem
     const groupIds = new Set(group.map(m => m.id));
     const requirementCounts: Record<string, number> = {};
-    
+
     group.forEach(m => {
       m.require?.forEach(reqId => {
         if (groupIds.has(reqId)) {
@@ -500,7 +616,7 @@ const App: React.FC = () => {
 
     let topMod = group[0].id;
     let maxReqs = -1;
-    
+
     for (const mid in requirementCounts) {
       if (requirementCounts[mid] > maxReqs) {
         maxReqs = requirementCounts[mid];
@@ -566,7 +682,7 @@ const App: React.FC = () => {
                     Proceed Anyway (Overwrite)
                   </button>
                 )}
-                
+
                 <button
                   onClick={() => setModalOpen(false)}
                   className="premium-btn-action premium-btn-primary"
@@ -586,162 +702,118 @@ const App: React.FC = () => {
           <h1>HellDrinx - Tool<span style={{ color: '#d97706' }}> | ModManager</span></h1>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <motion.button
-            whileHover={{ rotate: 90, scale: 1.1 }}
-            whileTap={{ scale: 0.9 }}
-            onClick={async () => {
-              await fetchSettings();
-              await fetchRules();
-              setSettingsOpen(true);
-            }}
-            style={{
-              background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)',
-              color: 'var(--text-muted)', cursor: 'pointer', padding: '10px', borderRadius: '12px',
-              display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s'
-            }}
-            title="Application Settings"
-          >
-            <Settings size={20} />
-          </motion.button>
-
-          <div style={{ position: 'relative' }}>
-            <motion.button
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.95 }}
-              onClick={() => setProfileMenuOpen(!profileMenuOpen)}
-              style={{
-                background: 'rgba(217, 119, 6, 0.1)', color: '#d97706', border: '1px solid rgba(217, 119, 6, 0.2)',
-                cursor: 'pointer', padding: '10px 16px', borderRadius: '12px',
-                display: 'flex', alignItems: 'center', gap: '8px', transition: 'all 0.2s'
-              }}
-              title="Switch Profiles"
+        <div className="header-controls">
+          {/* GROUP 1: PRESET STATUS & SAVE */}
+          <div className="action-group">
+            <motion.div
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.98 }}
+              className={`status-pill ${isProfileDirty ? 'dirty' : ''}`}
+              onClick={() => setProfilesOpen(true)}
+              title="Click to open Preset Manager"
             >
-              <Database size={18} />
-              <span style={{ fontSize: '11px', fontWeight: 'bold' }}>
-                {selectedProfile ? selectedProfile.toUpperCase() : 'PROFILES'}
-              </span>
-              <ChevronDown size={14} style={{ transform: profileMenuOpen ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }} />
-            </motion.button>
-
-            {/* Dropdown Menu */}
-            <AnimatePresence>
-              {profileMenuOpen && (
-                <motion.div
-                   initial={{ opacity: 0, y: 10, scale: 0.95 }}
-                   animate={{ opacity: 1, y: 0, scale: 1 }}
-                   exit={{ opacity: 0, y: 10, scale: 0.95 }}
-                   className="glass"
-                   style={{
-                     position: 'absolute', top: 'calc(100% + 8px)', right: 0, width: '220px',
-                     borderRadius: '16px', padding: '8px', zIndex: 100,
-                     boxShadow: '0 10px 30px rgba(0,0,0,0.5)',
-                     border: '1px solid rgba(217, 119, 6, 0.3)'
-                   }}
-                >
-                  <div style={{ maxHeight: '200px', overflowY: 'auto', marginBottom: '8px' }}>
-                    {profiles.length === 0 ? (
-                      <div style={{ padding: '12px', fontSize: '11px', color: '#64748b', textAlign: 'center' }}>No profiles found</div>
-                    ) : (
-                      profiles.map(p => (
-                        <div key={p} style={{ display: 'flex', gap: '4px', marginBottom: '4px' }}>
-                          <button
-                            onClick={() => {
-                              handleProfileLoad(p);
-                              setProfileMenuOpen(false);
-                            }}
-                            className="btn"
-                            style={{ 
-                              flexGrow: 1, background: 'rgba(255,255,255,0.05)', color: 'white', padding: '8px 12px', 
-                              borderRadius: '8px', justifyContent: 'flex-start', fontSize: '12px' 
-                            }}
-                          >
-                            {p}
-                          </button>
-                          <button
-                            onClick={() => handleProfileDelete(p)}
-                            style={{ 
-                              background: 'rgba(239, 68, 68, 0.1)', color: '#ef4444', border: 'none', 
-                              borderRadius: '8px', padding: '8px', cursor: 'pointer' 
-                            }}
-                          >
-                            <Trash size={14} />
-                          </button>
-                        </div>
-                      ))
-                    )}
-                  </div>
-                  
-                  <div style={{ height: '1px', background: 'rgba(255,255,255,0.1)', margin: '8px 0' }} />
-                  
-                  <button
-                    onClick={() => {
-                      setProfileMenuOpen(false);
-                      setProfilesOpen(true);
+              <Database size={16} />
+              <div style={{ display: 'flex', flexDirection: 'column' }}>
+                <span style={{ fontSize: '7px', fontWeight: '800', opacity: 0.4, letterSpacing: '0.1em', marginBottom: '2px' }}>PROFILE:</span>
+                <span style={{ fontSize: '11px', fontWeight: '800', lineHeight: 1 }}>
+                  {selectedProfile ? selectedProfile.name.toUpperCase() : 'NO PRESET'}
+                </span>
+              </div>
+              
+              {/* Contextual Save Button INSIDE the pill or next to it for tight integration */}
+              <AnimatePresence>
+                {isProfileDirty && (
+                  <motion.div
+                    initial={{ scale: 0, opacity: 0 }}
+                    animate={{ scale: 1, opacity: 1 }}
+                    exit={{ scale: 0, opacity: 0 }}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleProfileSave(selectedProfile!.name);
                     }}
-                    className="btn"
-                    style={{ 
-                      width: '100%', background: 'rgba(34, 197, 94, 0.1)', color: '#4ade80', 
-                      padding: '8px', borderRadius: '8px', fontSize: '11px', fontWeight: 'bold' 
+                    style={{
+                      background: 'var(--accent-amber)', color: '#000',
+                      padding: '6px', borderRadius: '8px', display: 'flex'
                     }}
+                    title="UNSAVED CHANGES! Click to save now."
                   >
                     <Save size={14} />
-                    CREATE NEW PROFILE
-                  </button>
-                </motion.div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </motion.div>
+          </div>
+
+          {/* GROUP 2: BULK ACTIONS */}
+          <div className="action-group">
+            <AnimatePresence mode="wait">
+              {serverMods.length > 0 ? (
+                <motion.button
+                  key="deactivate"
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -10 }}
+                  onClick={() => handleAction('deactivate-all', {})}
+                  className="glass-btn btn-danger"
+                  style={{ fontSize: '11px', padding: '8px 16px', display: 'flex', alignItems: 'center', gap: '8px', borderRadius: '12px' }}
+                >
+                  <XCircle size={16} />
+                  DEACTIVATE ALL
+                </motion.button>
+              ) : (
+                <motion.button
+                  key="activate"
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -10 }}
+                  onClick={() => handleAction('activate-all', {})}
+                  className="glass-btn"
+                  style={{ fontSize: '11px', padding: '8px 16px', display: 'flex', alignItems: 'center', gap: '8px', borderRadius: '12px', color: '#60a5fa', borderColor: 'rgba(59,130,246,0.3)' }}
+                >
+                  <Play size={16} />
+                  ACTIVATE ALL
+                </motion.button>
               )}
             </AnimatePresence>
           </div>
 
-          {issues.length > 0 && (
-            <motion.button
-              whileHover={{ scale: 1.1 }}
-              whileTap={{ scale: 0.9 }}
-              onClick={() => setIsSidebarOpen(true)}
-              style={{
-                background: 'rgba(139, 38, 18, 0.15)', color: '#8b2612', border: '1px solid rgba(139, 38, 18, 0.3)',
-                cursor: 'pointer', padding: '10px', borderRadius: '12px',
-                display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative'
-              }}
-              title="View Issues"
-            >
-              <AlertTriangle size={20} />
-              <span className="badge-count" style={{ top: '-4px', right: '-4px' }}>{issues.length}</span>
-            </motion.button>
-          )}
-
-          <AnimatePresence mode="wait">
-            {serverMods.length > 0 ? (
+          {/* GROUP 3: UTILITIES & SYSTEM */}
+          <div className="action-group" style={{ padding: '4px 8px' }}>
+            {issues.length > 0 && (
               <motion.button
-                key="deactivate"
-                initial={{ opacity: 0, x: 20 }}
-                animate={{ opacity: 1, x: 0 }}
-                exit={{ opacity: 0, x: -20 }}
-                onClick={() => handleAction('deactivate-all', {})}
-                className="glass-btn btn-danger"
-                style={{ fontSize: '12px', padding: '10px 20px', display: 'flex', alignItems: 'center', gap: '8px' }}
-              >
-                <XCircle size={16} />
-                DEACTIVATE ALL
-              </motion.button>
-            ) : (
-              <motion.button
-                key="activate"
-                initial={{ opacity: 0, x: 20 }}
-                animate={{ opacity: 1, x: 0 }}
-                exit={{ opacity: 0, x: -20 }}
-                onClick={() => handleAction('activate-all', {})}
-                className="glass-btn"
+                whileHover={{ scale: 1.1 }}
+                whileTap={{ scale: 0.9 }}
+                onClick={() => setIsSidebarOpen(true)}
                 style={{
-                  fontSize: '12px', padding: '10px 20px', display: 'flex', alignItems: 'center', gap: '8px',
-                  background: 'rgba(34, 197, 94, 0.15)', color: '#4ade80', borderColor: 'rgba(34, 197, 94, 0.3)'
+                  background: 'rgba(239, 68, 68, 0.1)', color: '#ef4444', border: 'none',
+                  cursor: 'pointer', padding: '8px', borderRadius: '10px',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative'
                 }}
+                title="View Critical Issues"
               >
-                <Monitor size={16} />
-                ACTIVATE ALL
+                <AlertTriangle size={18} />
+                <span className="badge-count" style={{ top: '-4px', right: '-4px', fontSize: '9px' }}>{issues.length}</span>
               </motion.button>
             )}
-          </AnimatePresence>
+
+            <motion.button
+              whileHover={{ rotate: 90, scale: 1.1 }}
+              whileTap={{ scale: 0.9 }}
+              onClick={async () => {
+                await fetchSettings();
+                await fetchRules();
+                setSettingsOpen(true);
+              }}
+              style={{
+                background: 'transparent', border: 'none',
+                color: 'var(--text-muted)', cursor: 'pointer', padding: '8px', borderRadius: '10px',
+                display: 'flex', alignItems: 'center', justifyContent: 'center'
+              }}
+              title="Application Settings"
+            >
+              <Settings size={20} />
+            </motion.button>
+          </div>
         </div>
       </header>
 
@@ -778,8 +850,8 @@ const App: React.FC = () => {
           whileTap={{ scale: 0.98 }}
           onClick={() => setBackupModalOpen(true)}
           className="glass-btn"
-          style={{ 
-            fontSize: '11px', padding: '10px 16px', background: 'rgba(217, 119, 6, 0.1)', 
+          style={{
+            fontSize: '11px', padding: '10px 16px', background: 'rgba(217, 119, 6, 0.1)',
             borderColor: 'rgba(217, 119, 6, 0.3)', color: '#d97706'
           }}
         >
@@ -825,18 +897,18 @@ const App: React.FC = () => {
         <AnimatePresence mode="popLayout">
           {loading ? (
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} style={{ textAlign: 'center', marginTop: '100px', color: '#64748b' }}>
-              <div className="animate-pulse">Carregando gerenciador...</div>
+              <div className="animate-pulse">Loading manager...</div>
             </motion.div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
               {activeTab === 'active' && (() => {
                 const activeModsInServer = filteredMods.filter(m => serverMods.includes(m.id));
                 const grouped = groupModsByWorkshop(activeModsInServer);
-                
+
                 if (activeModsInServer.length === 0) {
                   return (
                     <div style={{ textAlign: 'center', padding: '60px', color: '#64748b', fontStyle: 'italic' }}>
-                      Nenhum mod ativo no servidor atualmente.
+                      No mods currently active on the server.
                     </div>
                   );
                 }
@@ -844,10 +916,10 @@ const App: React.FC = () => {
                 return Object.entries(grouped).map(([workshopId, group]) => {
                   const coreId = getCoreModId(group);
                   const isExpanded = expandedGroups[workshopId] || false;
-                  
+
                   return (
-                    <div key={workshopId} className="workshop-group" style={{ 
-                      marginBottom: '16px', 
+                    <div key={workshopId} className="workshop-group" style={{
+                      marginBottom: '16px',
                       background: group.length > 1 ? 'rgba(30, 41, 59, 0.3)' : 'transparent',
                       borderRadius: '20px',
                       padding: group.length > 1 ? '4px' : '0',
@@ -861,7 +933,7 @@ const App: React.FC = () => {
                           const isLarge = isCore || isStandalone;
 
                           if (!isCore && group.length > 1 && !isExpanded) return null;
-                          
+
                           return (
                             <motion.div
                               key={mod.id}
@@ -870,12 +942,12 @@ const App: React.FC = () => {
                               animate={{ opacity: 1, y: 0 }}
                               exit={{ opacity: 0, scale: 0.95 }}
                               transition={{ duration: 0.2 }}
-              className={`mod-card ${highlightedMod === mod.id ? 'mod-highlight' : ''}`}
-              id={`mod-${mod.id}`}
-              style={{
-                minHeight: isLarge ? '90px' : '65px',
-                height: 'auto',
-                border: isLarge ? '1px solid #d97706' : '1px solid rgba(255,255,255,0.1)',
+                              className={`mod-card ${highlightedMod === mod.id ? 'mod-highlight' : ''}`}
+                              id={`mod-${mod.id}`}
+                              style={{
+                                minHeight: isLarge ? '90px' : '65px',
+                                height: 'auto',
+                                border: isLarge ? '1px solid #d97706' : '1px solid rgba(255,255,255,0.1)',
                                 boxShadow: isLarge ? '0 4px 20px rgba(217, 119, 6, 0.15)' : 'none',
                                 background: isLarge ? 'rgba(15, 23, 42, 0.8)' : 'rgba(15, 23, 42, 0.4)',
                                 marginLeft: !isLarge && group.length > 1 ? '32px' : '0',
@@ -885,7 +957,7 @@ const App: React.FC = () => {
                               }}
                             >
                               {!isLarge && group.length > 1 && (
-                                 <div style={{ position: 'absolute', left: '-20px', top: '50%', width: '16px', height: '1px', background: 'rgba(255,255,255,0.1)' }} />
+                                <div style={{ position: 'absolute', left: '-20px', top: '50%', width: '16px', height: '1px', background: 'rgba(255,255,255,0.1)' }} />
                               )}
                               <img
                                 src={mod.poster_url ? `${API_BASE}${mod.poster_url}` : 'https://placehold.co/120x120/1e293b/64748b?text=PZ'}
@@ -907,15 +979,15 @@ const App: React.FC = () => {
                                   {!isCore && group.length > 1 && (
                                     <span style={{ fontSize: '9px', background: 'rgba(255,255,255,0.05)', color: '#64748b', padding: '1px 6px', borderRadius: '4px', fontWeight: 'bold' }}>SUB-MOD</span>
                                   )}
-                                  
+
                                   {dependencyMap[mod.id]?.required_by?.some(rid => serverMods.includes(rid)) && (
                                     <span style={{ fontSize: '9px', background: 'rgba(168, 85, 247, 0.2)', color: '#a855f7', padding: '1px 6px', borderRadius: '4px', fontWeight: 'bold' }}>DEPENDENCY</span>
                                   )}
                                 </div>
                                 <div className="mod-meta">
-                                  <span>ID: <code style={{ color: isCore ? '#d97706' : '#475569' }}>{mod.id}</code></span>
+                                  <span>ID: <code style={{ color: isCore ? '#d97706' : '#475569' }}>{mod.workshop_id && mod.workshop_id !== '0' ? mod.workshop_id : mod.id}</code></span>
                                 </div>
-            
+
                                 {/* Exibição de Dependências */}
                                 {mod.require && mod.require.length > 0 && (
                                   <div style={{ marginTop: '8px', display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
@@ -929,7 +1001,7 @@ const App: React.FC = () => {
                                     })}
                                   </div>
                                 )}
-            
+
                                 {/* Exibição de Incompatibilidades */}
                                 {mod.incompatible && mod.incompatible.some(incId => serverMods.includes(incId)) && (
                                   <div style={{ marginTop: '12px', display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 14px', background: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.2)', borderRadius: '10px' }}>
@@ -940,7 +1012,7 @@ const App: React.FC = () => {
                                   </div>
                                 )}
                               </div>
-            
+
                               <div style={{ padding: '12px 20px', display: 'flex', alignItems: 'center', gap: '12px' }}>
                                 {isCore && (
                                   <button
@@ -951,36 +1023,36 @@ const App: React.FC = () => {
                                     {isExpanded ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
                                   </button>
                                 )}
-                                  {mod.workshop_id && mod.workshop_id !== '0' && (
-                                    <button
-                                      className="btn"
-                                      title="Ver no Steam Workshop"
-                                      style={{ background: 'rgba(255,255,255,0.05)', color: '#3b82f6', borderRadius: '8px', padding: '8px' }}
-                                      onClick={() => {
-                                        const url = `steam://url/CommunityFilePage/${mod.workshop_id}`;
-                                        (window as any).require('electron').ipcRenderer.invoke('open-external-url', url);
-                                      }}
-                                    >
-                                      <ExternalLink size={16} />
-                                    </button>
-                                  )}
+                                {mod.workshop_id && mod.workshop_id !== '0' && (
                                   <button
                                     className="btn"
-                                    title="Abrir pasta local no Windows"
-                                    style={{ background: 'rgba(255,255,255,0.05)', color: '#94a3b8', borderRadius: '8px', padding: '8px' }}
+                                    title="View on Steam Workshop"
+                                    style={{ background: 'rgba(255,255,255,0.05)', color: '#3b82f6', borderRadius: '8px', padding: '8px' }}
                                     onClick={() => {
-                                      const targetPath = mod.absolute_path || `${settings.workshop_path}\\${mod.workshop_id}\\mods\\${mod.id}`;
-                                      if (targetPath) {
-                                         (window as any).require('electron').ipcRenderer.invoke('open-folder-native', targetPath);
-                                      }
+                                      const url = `steam://url/CommunityFilePage/${mod.workshop_id}`;
+                                      (window as any).require('electron').ipcRenderer.invoke('open-external-url', url);
                                     }}
                                   >
-                                    <FolderOpen size={16} />
+                                    <ExternalLink size={16} />
                                   </button>
-                                
+                                )}
                                 <button
                                   className="btn"
-                                  title="Remover do Servidor"
+                                  title="Open local folder in Windows"
+                                  style={{ background: 'rgba(255,255,255,0.05)', color: '#94a3b8', borderRadius: '8px', padding: '8px' }}
+                                  onClick={() => {
+                                    const targetPath = mod.absolute_path || `${settings.workshop_path}\\${mod.workshop_id}\\mods\\${mod.id}`;
+                                    if (targetPath) {
+                                      (window as any).require('electron').ipcRenderer.invoke('open-folder-native', targetPath);
+                                    }
+                                  }}
+                                >
+                                  <FolderOpen size={16} />
+                                </button>
+
+                                <button
+                                  className="btn"
+                                  title="Remove from Server"
                                   style={{ background: 'rgba(239, 68, 68, 0.1)', color: '#ef4444', borderRadius: '8px', padding: '8px 12px', display: 'flex', alignItems: 'center', gap: '6px' }}
                                   onClick={() => handleAction('delete-specific', { mod_id: mod.id, workshop_id: mod.workshop_id, name: mod.name })}
                                 >
@@ -1005,7 +1077,7 @@ const App: React.FC = () => {
                 if (inactiveMods.length === 0) {
                   return (
                     <div style={{ textAlign: 'center', padding: '60px', color: '#64748b', fontStyle: 'italic' }}>
-                      Nenhum mod inativo ou removido.
+                      No inactive or removed mods.
                     </div>
                   );
                 }
@@ -1015,8 +1087,8 @@ const App: React.FC = () => {
                   const isExpanded = expandedGroups[workshopId] || false;
 
                   return (
-                    <div key={workshopId} className="workshop-group" style={{ 
-                      marginBottom: '16px', 
+                    <div key={workshopId} className="workshop-group" style={{
+                      marginBottom: '16px',
                       background: group.length > 1 ? 'rgba(30, 41, 59, 0.1)' : 'transparent',
                       borderRadius: '20px',
                       padding: group.length > 1 ? '4px' : '0',
@@ -1054,12 +1126,12 @@ const App: React.FC = () => {
                               }}
                             >
                               {/* Enhanced Selection Checkbox */}
-                              <div 
+                              <div
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  setSelectedIds(prev => 
-                                    prev.includes(mod.id) 
-                                      ? prev.filter(id => id !== mod.id) 
+                                  setSelectedIds(prev =>
+                                    prev.includes(mod.id)
+                                      ? prev.filter(id => id !== mod.id)
                                       : [...prev, mod.id]
                                   );
                                 }}
@@ -1074,9 +1146,9 @@ const App: React.FC = () => {
                                 }}
                               >
                                 {selectedIds.includes(mod.id) ? (
-                                   <div style={{ width: '10px', height: '10px', background: 'white', borderRadius: '2px', boxShadow: '0 0 5px rgba(255,255,255,0.5)' }} />
+                                  <div style={{ width: '10px', height: '10px', background: 'white', borderRadius: '2px', boxShadow: '0 0 5px rgba(255,255,255,0.5)' }} />
                                 ) : (
-                                   <div style={{ width: '4px', height: '4px', background: 'rgba(255,255,255,0.3)', borderRadius: '50%' }} />
+                                  <div style={{ width: '4px', height: '4px', background: 'rgba(255,255,255,0.3)', borderRadius: '50%' }} />
                                 )}
                               </div>
 
@@ -1098,15 +1170,15 @@ const App: React.FC = () => {
                                     </div>
                                   )}
                                   {isTrash ? (
-                                      <span style={{ fontSize: '9px', background: '#8b2612', color: 'white', padding: '1px 6px', borderRadius: '4px', fontWeight: 'bold' }}>TRASH BIN</span>
+                                    <span style={{ fontSize: '9px', background: '#8b2612', color: 'white', padding: '1px 6px', borderRadius: '4px', fontWeight: 'bold' }}>TRASH BIN</span>
                                   ) : (
-                                      <span style={{ fontSize: '9px', background: '#334155', color: '#94a3b8', padding: '1px 6px', borderRadius: '4px', fontWeight: 'bold' }}>INACTIVE</span>
+                                    <span style={{ fontSize: '9px', background: '#334155', color: '#94a3b8', padding: '1px 6px', borderRadius: '4px', fontWeight: 'bold' }}>INACTIVE</span>
                                   )}
                                 </div>
                                 <div className="mod-meta">
-                                  <span>ID: <code style={{ color: '#64748b' }}>{mod.id}</code></span>
+                                  <span>ID: <code style={{ color: '#64748b' }}>{mod.workshop_id && mod.workshop_id !== '0' ? mod.workshop_id : mod.id}</code></span>
                                 </div>
-                                
+
                                 {mod.require && mod.require.length > 0 && (
                                   <div style={{ marginTop: '8px', display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
                                     {mod.require.map(reqId => {
@@ -1119,7 +1191,7 @@ const App: React.FC = () => {
                                     })}
                                   </div>
                                 )}
-            
+
                                 {mod.incompatible && mod.incompatible.some(incId => serverMods.includes(incId)) && (
                                   <div style={{ marginTop: '12px', display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 14px', background: 'rgba(239, 68, 68, 0.05)', border: '1px solid rgba(239, 68, 68, 0.1)', borderRadius: '10px' }}>
                                     <AlertTriangle size={16} color="#f87171" />
@@ -1129,70 +1201,70 @@ const App: React.FC = () => {
                                   </div>
                                 )}
                               </div>
-            
-                                <div style={{ padding: '12px 20px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                  {isCore && (
-                                    <button
-                                      className="btn"
-                                      onClick={() => setExpandedGroups(prev => ({ ...prev, [workshopId]: !isExpanded }))}
-                                      style={{ background: 'rgba(59, 130, 246, 0.1)', color: '#3b82f6', borderRadius: '8px', padding: '8px' }}
-                                    >
-                                      {isExpanded ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
-                                    </button>
-                                  )}
-                                  {mod.workshop_id && mod.workshop_id !== '0' && (
-                                    <button
-                                      className="btn"
-                                      title="Ver no Steam Workshop"
-                                      style={{ background: 'rgba(255,255,255,0.05)', color: '#3b82f6', borderRadius: '8px', padding: '8px' }}
-                                      onClick={() => {
-                                        const url = `steam://url/CommunityFilePage/${mod.workshop_id}`;
-                                        (window as any).require('electron').ipcRenderer.invoke('open-external-url', url);
-                                      }}
-                                    >
-                                      <ExternalLink size={16} />
-                                    </button>
-                                  )}
-                                  {!isTrash && (
-                                    <button
-                                      className="btn"
-                                      title="Abrir pasta local no Windows"
-                                      style={{ background: 'rgba(255,255,255,0.05)', color: '#94a3b8', borderRadius: '8px', padding: '8px' }}
-                                      onClick={() => {
-                                        const targetPath = mod.absolute_path || `${settings.workshop_path}\\${mod.workshop_id}\\mods\\${mod.id}`;
-                                        if (targetPath) {
-                                           (window as any).require('electron').ipcRenderer.invoke('open-folder-native', targetPath);
-                                        }
-                                      }}
-                                    >
-                                      <FolderOpen size={16} />
-                                    </button>
-                                  )}
-                                
+
+                              <div style={{ padding: '12px 20px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                {isCore && (
+                                  <button
+                                    className="btn"
+                                    onClick={() => setExpandedGroups(prev => ({ ...prev, [workshopId]: !isExpanded }))}
+                                    style={{ background: 'rgba(59, 130, 246, 0.1)', color: '#3b82f6', borderRadius: '8px', padding: '8px' }}
+                                  >
+                                    {isExpanded ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
+                                  </button>
+                                )}
+                                {mod.workshop_id && mod.workshop_id !== '0' && (
+                                  <button
+                                    className="btn"
+                                    title="View on Steam Workshop"
+                                    style={{ background: 'rgba(255,255,255,0.05)', color: '#3b82f6', borderRadius: '8px', padding: '8px' }}
+                                    onClick={() => {
+                                      const url = `steam://url/CommunityFilePage/${mod.workshop_id}`;
+                                      (window as any).require('electron').ipcRenderer.invoke('open-external-url', url);
+                                    }}
+                                  >
+                                    <ExternalLink size={16} />
+                                  </button>
+                                )}
+                                {!isTrash && (
+                                  <button
+                                    className="btn"
+                                    title="Open local folder in Windows"
+                                    style={{ background: 'rgba(255,255,255,0.05)', color: '#94a3b8', borderRadius: '8px', padding: '8px' }}
+                                    onClick={() => {
+                                      const targetPath = mod.absolute_path || `${settings.workshop_path}\\${mod.workshop_id}\\mods\\${mod.id}`;
+                                      if (targetPath) {
+                                        (window as any).require('electron').ipcRenderer.invoke('open-folder-native', targetPath);
+                                      }
+                                    }}
+                                  >
+                                    <FolderOpen size={16} />
+                                  </button>
+                                )}
+
                                 {!isTrash ? (
-                                    <button
-                                      className="btn"
-                                      style={{ padding: '8px 16px', borderRadius: '8px', display: 'flex', alignItems: 'center', gap: '8px', background: 'linear-gradient(135deg, #0891b2 0%, #059669 100%)', color: 'white', border: 'none', boxShadow: '0 0 15px rgba(5, 150, 105, 0.3)' }}
-                                      onClick={() => handleAction('activate-mod', { mod_id: mod.id, workshop_id: mod.workshop_id })}
-                                    >
-                                      <Package size={16} />
-                                      <span style={{ fontSize: '12px', fontWeight: 'bold' }}>ACTIVATE</span>
-                                    </button>
+                                  <button
+                                    className="btn"
+                                    style={{ padding: '8px 16px', borderRadius: '8px', display: 'flex', alignItems: 'center', gap: '8px', background: 'linear-gradient(135deg, #0891b2 0%, #059669 100%)', color: 'white', border: 'none', boxShadow: '0 0 15px rgba(5, 150, 105, 0.3)' }}
+                                    onClick={() => handleAction('activate-mod', { mod_id: mod.id, workshop_id: mod.workshop_id })}
+                                  >
+                                    <Package size={16} />
+                                    <span style={{ fontSize: '12px', fontWeight: 'bold' }}>ACTIVATE</span>
+                                  </button>
                                 ) : (
-                                    <button
-                                      className="btn"
-                                      style={{ background: 'linear-gradient(135deg, #0891b2 0%, #059669 100%)', color: 'white', border: 'none', boxShadow: '0 0 10px rgba(5, 150, 105, 0.2)', padding: '8px 16px', borderRadius: '8px', display: 'flex', alignItems: 'center', gap: '8px' }}
-                                      onClick={() => handleAction('restore', { workshop_id: mod.workshop_id })}
-                                    >
+                                  <button
+                                    className="btn"
+                                    style={{ background: 'linear-gradient(135deg, #0891b2 0%, #059669 100%)', color: 'white', border: 'none', boxShadow: '0 0 10px rgba(5, 150, 105, 0.2)', padding: '8px 16px', borderRadius: '8px', display: 'flex', alignItems: 'center', gap: '8px' }}
+                                    onClick={() => handleAction('restore', { workshop_id: mod.workshop_id })}
+                                  >
                                     <History size={16} />
                                     <span style={{ fontSize: '12px', fontWeight: 'bold' }}>RESTORE</span>
                                   </button>
                                 )}
-            
+
                                 {!isTrash && (
                                   <button
                                     className="btn"
-                                    title="Mover pasta física para Lixeira (Archive)"
+                                    title="Archive physical folder to Trash Bin"
                                     style={{ background: 'rgba(139, 38, 18, 0.1)', color: '#8b2612', borderRadius: '8px', padding: '8px' }}
                                     onClick={() => handleAction('delete-volume', { mod_id: mod.id, workshop_id: mod.workshop_id, name: mod.name })}
                                   >
@@ -1288,7 +1360,7 @@ const App: React.FC = () => {
                   </div>
                   <p style={{ fontSize: '10px', color: '#4d5569', marginTop: '6px' }}>Target: \Zomboid\Server\servertest.ini</p>
                 </div>
-                
+
                 <div style={{ marginTop: '8px' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: '8px' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
@@ -1309,14 +1381,14 @@ const App: React.FC = () => {
                     </button>
                   </div>
                   <textarea
-                     value={rulesText}
-                     onChange={(e) => setRulesText(e.target.value)}
-                     style={{
-                       width: '100%', minHeight: '180px', background: '#020617', border: '1px solid #334155', borderRadius: '12px', 
-                       padding: '16px', color: '#a5b4fc', fontFamily: '"Fira Code", monospace', fontSize: '12px', outline: 'none', resize: 'vertical'
-                     }}
-                     placeholder="[modID]\nloadAfter=mod_x, mod_y\nloadFirst=on\ncategory=map"
-                     spellCheck={false}
+                    value={rulesText}
+                    onChange={(e) => setRulesText(e.target.value)}
+                    style={{
+                      width: '100%', minHeight: '180px', background: '#020617', border: '1px solid #334155', borderRadius: '12px',
+                      padding: '16px', color: '#a5b4fc', fontFamily: '"Fira Code", monospace', fontSize: '12px', outline: 'none', resize: 'vertical'
+                    }}
+                    placeholder="[modID]\nloadAfter=mod_x, mod_y\nloadFirst=on\ncategory=map"
+                    spellCheck={false}
                   />
                 </div>
 
@@ -1398,7 +1470,7 @@ const App: React.FC = () => {
           {syncing ? 'SYNCING...' : 'Sync Now !'}
         </motion.button>
         <div style={{ display: 'flex', gap: '16px' }}>
-          <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }} title="Número de inscrições do Workshop"><Package size={12} /> {new Set(mods.map(m => m.workshop_id)).size} Subscribed</span>
+          <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }} title="Workshop subscriptions count"><Package size={12} /> {new Set(mods.map(m => m.workshop_id)).size} Subscribed</span>
           <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}><Trash2 size={12} /> {trash.length} Archived</span>
         </div>
       </footer>
@@ -1407,7 +1479,7 @@ const App: React.FC = () => {
       <AnimatePresence>
         {isSidebarOpen && (
           <>
-            <motion.div 
+            <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
@@ -1415,7 +1487,7 @@ const App: React.FC = () => {
               style={{ zIndex: 3000 }}
               onClick={() => setIsSidebarOpen(false)}
             />
-            <motion.div 
+            <motion.div
               initial={{ x: '100%' }}
               animate={{ x: 0 }}
               exit={{ x: '100%' }}
@@ -1424,25 +1496,25 @@ const App: React.FC = () => {
               style={{ zIndex: 3001 }}
             >
               <div className="sidebar-header">
-                <h2>Avisos Críticos</h2>
+                <h2>Critical Issues</h2>
                 <button className="glass-btn" onClick={() => setIsSidebarOpen(false)} style={{ padding: '8px' }}>
                   <ChevronDown size={24} style={{ transform: 'rotate(-90deg)' }} />
                 </button>
               </div>
-              
+
               <div className="issue-list">
                 {issues.length === 0 ? (
                   <div style={{ textAlign: 'center', marginTop: '40px', color: '#64748b' }}>
                     <Package size={48} style={{ opacity: 0.2, marginBottom: '16px' }} />
-                    <p>Nenhum problema detectado!</p>
+                    <p>No issues detected!</p>
                   </div>
                 ) : (
                   <>
                     {/* Tab Switcher */}
                     <div style={{ display: 'flex', background: 'rgba(15, 23, 42, 0.6)', padding: '4px', borderRadius: '14px', marginBottom: '20px' }}>
-                      <button 
+                      <button
                         onClick={() => setActiveSidebarTab('conflict')}
-                        style={{ 
+                        style={{
                           flexGrow: 1, padding: '10px', borderRadius: '10px', border: 'none', cursor: 'pointer',
                           background: activeSidebarTab === 'conflict' ? '#8b2612' : 'transparent',
                           color: activeSidebarTab === 'conflict' ? 'white' : '#94a3b8',
@@ -1451,11 +1523,11 @@ const App: React.FC = () => {
                         }}
                       >
                         <XCircle size={14} />
-                        Conflitos ({issues.filter(i => i.type === 'conflict').length})
+                        Conflicts ({issues.filter(i => i.type === 'conflict').length})
                       </button>
-                      <button 
+                      <button
                         onClick={() => setActiveSidebarTab('missing')}
-                        style={{ 
+                        style={{
                           flexGrow: 1, padding: '10px', borderRadius: '10px', border: 'none', cursor: 'pointer',
                           background: activeSidebarTab === 'missing' ? '#d97706' : 'transparent',
                           color: activeSidebarTab === 'missing' ? 'white' : '#94a3b8',
@@ -1464,7 +1536,7 @@ const App: React.FC = () => {
                         }}
                       >
                         <AlertCircle size={14} />
-                        Dependências ({issues.filter(i => i.type === 'missing').length})
+                        Dependencies ({issues.filter(i => i.type === 'missing').length})
                       </button>
                     </div>
 
@@ -1480,7 +1552,7 @@ const App: React.FC = () => {
                         {issues.filter(i => i.type === activeSidebarTab).length === 0 ? (
                           <div style={{ textAlign: 'center', padding: '40px', color: '#475569' }}>
                             <Package size={32} style={{ opacity: 0.1, marginBottom: '12px' }} />
-                            <p style={{ fontSize: '12px' }}>Nenhum item nesta categoria.</p>
+                            <p style={{ fontSize: '12px' }}>No items in this category.</p>
                           </div>
                         ) : (
                           issues.filter(i => i.type === activeSidebarTab).map((issue, idx) => (
@@ -1488,15 +1560,15 @@ const App: React.FC = () => {
                               <div className="issue-desc" style={{ marginBottom: '12px' }}>
                                 <strong>{issue.modName}</strong>: {issue.detail}
                               </div>
-                              <button 
+                              <button
                                 className={activeSidebarTab === 'conflict' ? "btn-primary" : "btn-secondary"}
-                                style={{ 
+                                style={{
                                   padding: '6px 12px', fontSize: '10px', width: '100%', justifyContent: 'center',
                                   ...(activeSidebarTab === 'missing' ? { background: 'rgba(8, 145, 178, 0.1)', border: '1px solid rgba(8, 145, 178, 0.2)', color: '#0891b2' } : {})
                                 }}
                                 onClick={() => scrollToMod(issue.modId)}
                               >
-                                Localizar Mod
+                                Find Mod
                               </button>
                             </div>
                           ))
@@ -1508,7 +1580,7 @@ const App: React.FC = () => {
               </div>
 
               <div style={{ marginTop: 'auto', padding: '20px', background: 'rgba(255,255,255,0.03)', borderRadius: '16px', fontSize: '12px', color: '#64748b' }}>
-                <p>💡 Resolver esses alertas garante que seu servidor carregue corretamente e sem crashes.</p>
+                <p>💡 Resolving these alerts ensures your server loads correctly and without crashes.</p>
               </div>
             </motion.div>
           </>
@@ -1524,15 +1596,9 @@ const App: React.FC = () => {
           from { transform: rotate(0deg); }
           to { transform: rotate(360deg); }
         }
-        .animate-pulse {
-          animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
-        }
-        @keyframes pulse {
-          0%, 100% { opacity: 1; }
-          50% { opacity: .5; }
-        }
       `}} />
-      {/* Profiles Modal */}
+
+      {/* Advanced Profiles Modal (H.I.P. System) */}
       <AnimatePresence>
         {profilesOpen && (
           <motion.div
@@ -1540,64 +1606,314 @@ const App: React.FC = () => {
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             className="premium-modal-overlay"
+            style={{ zIndex: 4000 }}
           >
             <motion.div
               initial={{ scale: 0.9, y: 20, opacity: 0 }}
               animate={{ scale: 1, y: 0, opacity: 1 }}
               exit={{ scale: 0.9, y: 20, opacity: 0 }}
               className="premium-modal"
-              style={{ maxWidth: '600px' }}
+              style={{
+                maxWidth: '600px', width: '95%', padding: '0',
+                background: '#0f172a', border: '1px solid rgba(255,255,255,0.05)',
+                maxHeight: '92vh', display: 'flex', flexDirection: 'column',
+                boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5), 0 0 40px rgba(59, 130, 246, 0.1)'
+              }}
             >
-              <div className="premium-modal-header" style={{ marginBottom: '24px' }}>
-                <div className="premium-alert-icon-container warning" style={{ background: 'rgba(59, 130, 246, 0.1)', color: '#3b82f6' }}>
-                  <Database size={32} />
-                </div>
-                <h2 className="premium-modal-title">Profile Management</h2>
-                <p className="premium-modal-subtitle">Config Presets</p>
-              </div>
+              {/* Header (Compact Integrated Hero Banner Design) */}
+              <div className="premium-modal-header" style={{
+                height: '160px', padding: '0', borderBottom: '1px solid rgba(255,255,255,0.05)',
+                display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+                flexShrink: 0, position: 'relative', overflow: 'hidden',
+                background: 'radial-gradient(circle at center, rgba(59, 130, 246, 0.08) 0%, rgba(15, 23, 42, 1) 100%)'
+              }}>
+                {/* Visual Integration Layers */}
+                <div style={{ position: 'relative', width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
+                  {/* Ambient Glow Background Effect */}
+                  <div style={{ position: 'absolute', width: '250px', height: '250px', background: 'rgba(59, 130, 246, 0.05)', filter: 'blur(70px)', borderRadius: '50%', zIndex: 0 }} />
 
-              <div className="premium-modal-body" style={{ textAlign: 'left' }}>
-                <div style={{ marginBottom: '24px' }}>
-                  <label style={{ fontSize: '12px', color: '#94a3b8', marginBottom: '8px', display: 'block' }}>Set Profile Name</label>
-                  <div style={{ display: 'flex', gap: '8px' }}>
-                    <input 
-                      type="text" 
-                      id="new-profile-name"
-                      placeholder="Enter profile name (e.g., Multiplayer_Survival)..." 
-                      className="glass-input" 
-                      style={{ flexGrow: 1, padding: '12px', borderRadius: '12px', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', color: 'white' }}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') {
-                          handleProfileSave((e.target as HTMLInputElement).value);
-                          (e.target as HTMLInputElement).value = '';
-                          setProfilesOpen(false);
-                        }
-                      }}
-                    />
-                    <button 
-                      onClick={() => {
-                        const input = document.getElementById('new-profile-name') as HTMLInputElement;
-                        handleProfileSave(input.value);
-                        input.value = '';
-                        setProfilesOpen(false);
-                      }}
-                      className="glass-btn" 
-                      style={{ background: '#3b82f6', color: 'white', border: 'none' }}
-                    >
-                      <Save size={18} />
-                    </button>
-                  </div>
-                </div>
-              </div>
+                  {/* Shadow Gradient to blend with Body */}
+                  <div style={{ position: 'absolute', bottom: 0, left: 0, width: '100%', height: '80px', background: 'linear-gradient(to top, #0f172a, transparent)', zIndex: 2 }} />
 
-              <div className="premium-modal-actions" style={{ marginTop: '24px' }}>
+                  {/* Centered Integrated Mascot (Compact) */}
+                  <img
+                    src="builder_cat.png"
+                    alt="HellDrinx Builder Hero"
+                    onError={(e) => (e.currentTarget.style.display = 'none')}
+                    style={{
+                      width: '150px', height: '150px', objectFit: 'contain',
+                      maskImage: 'radial-gradient(circle, black 50%, transparent 90%)',
+                      WebkitMaskImage: 'radial-gradient(circle, black 50%, transparent 90%)',
+                      filter: 'drop-shadow(0 15px 30px rgba(0,0,0,0.8))',
+                      zIndex: 1, transform: 'translateY(10px)', opacity: 0.95
+                    }}
+                  />
+                </div>
+
+                {/* Discrete Close Button (Top Right) */}
                 <button
                   onClick={() => setProfilesOpen(false)}
-                  className="premium-btn-action premium-btn-primary"
-                  style={{ padding: '14px' }}
+                  style={{ position: 'absolute', top: '24px', right: '24px', background: 'rgba(0,0,0,0.4)', border: '1px solid rgba(255,255,255,0.05)', color: '#64748b', cursor: 'pointer', padding: '10px', borderRadius: '12px', display: 'flex', zIndex: 10, transition: 'all 0.2s' }}
+                  onMouseOver={(e) => (e.currentTarget.style.color = '#ef4444')}
+                  onMouseOut={(e) => (e.currentTarget.style.color = '#64748b')}
                 >
-                  CLOSE
+                  <XCircle size={22} />
                 </button>
+              </div>
+
+              {/* Scrollable Body */}
+              {/* Scrollable Body */}
+              <div className="premium-modal-body" style={{ padding: '32px', display: 'flex', flexDirection: 'column', gap: '24px', overflowY: 'auto', flexGrow: 1, scrollbarWidth: 'thin', justifyContent: isNamingNew ? 'center' : 'flex-start' }}>
+                
+                {isNamingNew ? (
+                  /* NEW FAST-CREATE UI */
+                  <motion.div 
+                    initial={{ scale: 0.9, opacity: 0 }}
+                    animate={{ scale: 1, opacity: 1 }}
+                    style={{ background: 'rgba(59, 130, 246, 0.05)', padding: '40px', borderRadius: '32px', border: '1px solid rgba(59, 130, 246, 0.15)', textAlign: 'center', display: 'flex', flexDirection: 'column', gap: '24px', boxShadow: '0 20px 40px rgba(0,0,0,0.4)' }}
+                  >
+                    <div style={{ background: 'rgba(59, 130, 246, 0.1)', color: '#60a5fa', width: '64px', height: '64px', borderRadius: '20px', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 8px' }}>
+                      <Plus size={32} />
+                    </div>
+                    
+                    <div>
+                      <h2 style={{ fontSize: '22px', fontWeight: '800', color: '#fff', marginBottom: '8px' }}>Insert the Profile Name:</h2>
+                      <p style={{ fontSize: '12px', color: '#64748b', textTransform: 'uppercase', letterSpacing: '2px' }}>Type carefully and confirm below</p>
+                    </div>
+
+                    <input
+                      type="text"
+                      autoFocus
+                      placeholder="My Epic Apocalypse Preset..."
+                      value={customPresetName}
+                      onChange={(e) => setCustomPresetName(e.target.value)}
+                      onKeyDown={async (e) => {
+                        if (e.key === 'Enter' && customPresetName.trim()) {
+                          await handleProfileSave(customPresetName);
+                          setIsNamingNew(false);
+                        }
+                      }}
+                      className="glass-input"
+                      style={{ width: '100%', padding: '20px', borderRadius: '16px', fontSize: '18px', textAlign: 'center', background: 'rgba(0,0,0,0.3)', border: '2px solid rgba(59, 130, 246, 0.3)', color: '#fff' }}
+                    />
+
+                    <div style={{ display: 'flex', gap: '12px' }}>
+                      <button 
+                        onClick={() => setIsNamingNew(false)}
+                        className="glass-btn" 
+                        style={{ flex: 1, justifyContent: 'center', opacity: 0.6 }}
+                      >
+                        CANCEL
+                      </button>
+                      <button 
+                        disabled={!customPresetName.trim()}
+                        onClick={async () => {
+                          await handleProfileSave(customPresetName);
+                          setIsNamingNew(false);
+                        }}
+                        className="btn-primary" 
+                        style={{ flex: 2, justifyContent: 'center', padding: '16px', borderRadius: '16px' }}
+                      >
+                        CONFIRM & CREATE
+                      </button>
+                    </div>
+                  </motion.div>
+                ) : (
+                  /* ORIGINAL LIBRARY UI */
+                  <>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', background: 'rgba(255, 255, 255, 0.02)', padding: '24px', borderRadius: '24px', border: '1px solid rgba(255, 255, 255, 0.05)' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <label style={{ fontSize: '11px', fontWeight: '900', color: 'var(--accent-amber)', textTransform: 'uppercase', letterSpacing: '1.5px' }}>
+                          Select Preset Profile
+                        </label>
+                        <button
+                          onClick={() => { setIsNamingNew(true); setSelectedProfile(null); setCustomPresetName(""); }}
+                          className="glass-btn"
+                          style={{ background: 'rgba(217, 119, 6, 0.1)', border: 'none', color: 'var(--accent-amber)', fontSize: '10px', fontWeight: '800', cursor: 'pointer', padding: '6px 12px', borderRadius: '10px', display: 'flex', alignItems: 'center', gap: '6px' }}
+                        >
+                          <Plus size={14} />
+                          NEW PROFILE
+                        </button>
+                      </div>
+
+                      <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+                        <div style={{ position: 'relative', flexGrow: 1 }}>
+                          <select
+                            value={selectedProfile ? (selectedProfile.isCommunity ? `community:${selectedProfile.name}` : selectedProfile.name) : ''}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              if (val) {
+                                const isComm = val.startsWith('community:');
+                                const realName = isComm ? val.replace('community:', '') : val;
+                                setSelectedProfile({ name: realName, isCommunity: isComm });
+                                setCustomPresetName(realName);
+                              } else {
+                                setSelectedProfile(null);
+                                setCustomPresetName("");
+                              }
+                            }}
+                            className="glass-input"
+                            style={{ width: '100%', padding: '16px 20px', borderRadius: '16px', fontSize: '15px', fontWeight: '500', appearance: 'none', background: 'rgba(0,0,0,0.4)', border: '1px solid rgba(255,255,255,0.05)', color: '#fff', cursor: 'pointer' }}
+                          >
+                            <option value="">-- Choose from your collection --</option>
+                            {profiles.user.map(p => <option key={p} value={p}>{p}</option>)}
+                            {profiles.community.length > 0 && <optgroup label="Community Shared">
+                              {profiles.community.map(p => <option key={p} value={`community:${p}`}>{p}</option>)}
+                            </optgroup>}
+                          </select>
+                          <ChevronDown size={18} style={{ position: 'absolute', right: '18px', top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', opacity: 0.4 }} />
+                        </div>
+
+                        <button onClick={() => setIsEditingPresets(!isEditingPresets)} className={`glass-btn ${isEditingPresets ? 'active' : ''}`} style={{ width: '54px', height: '54px', borderRadius: '16px', background: isEditingPresets ? 'rgba(234, 179, 8, 0.2)' : 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.05)' }}>
+                          <Settings size={22} style={{ opacity: isEditingPresets ? 1 : 0.6 }} />
+                        </button>
+                      </div>
+
+                      <AnimatePresence>
+                        {isEditingPresets && (
+                          <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} style={{ overflow: 'hidden', background: 'rgba(0,0,0,0.2)', borderRadius: '14px', marginTop: '4px', border: '1px solid rgba(239, 68, 68, 0.1)' }}>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '1px' }}>
+                              {profiles.user.map(p => (
+                                <div key={p} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 16px', borderBottom: '1px solid rgba(255,255,255,0.02)' }}>
+                                  <span style={{ fontSize: '12px', color: '#94a3b8' }}>{p}</span>
+                                  <button onClick={() => handleProfileDelete(p, false)} style={{ color: '#ef4444', background: 'none', border: 'none', cursor: 'pointer', opacity: 0.7 }}><Trash2 size={13} /></button>
+                                </div>
+                              ))}
+                            </div>
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
+                    </div>
+
+                    {/* STEP 2: SOURCE FILE (Premium Card) */}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', background: 'rgba(217, 119, 6, 0.03)', padding: '24px', borderRadius: '24px', border: '1px solid rgba(217, 119, 6, 0.1)', opacity: selectedProfile || customPresetName ? 1 : 0.3, transition: 'all 0.4s' }}>
+                      <label style={{ fontSize: '11px', fontWeight: '900', color: '#f59e0b', textTransform: 'uppercase', letterSpacing: '1.5px' }}>Import & Update .ini (Optional)</label>
+                      <div
+                        onDragOver={handleDragOver}
+                        onDragLeave={handleDragLeave}
+                        onDrop={handleDrop}
+                        onClick={() => (selectedProfile || customPresetName) && !pendingImport && handleImportProfile(false)}
+                        style={{
+                          border: isDragging ? '2px dashed #fbbf24' : '2px dashed rgba(255,255,255,0.05)',
+                          background: isDragging ? 'rgba(217, 119, 6, 0.08)' : 'rgba(0,0,0,0.2)',
+                          padding: '30px 20px', borderRadius: '20px', textAlign: 'center', cursor: (selectedProfile || customPresetName) ? 'pointer' : 'not-allowed', transition: 'all 0.3s', position: 'relative'
+                        }}
+                      >
+                        {pendingImport ? (
+                          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px' }}>
+                            <div style={{ background: 'rgba(16, 185, 129, 0.1)', color: '#10b981', padding: '10px', borderRadius: '50%' }}>
+                              <Save size={24} />
+                            </div>
+                            <p style={{ fontSize: '13px', fontWeight: 'bold', color: '#fff', margin: 0 }}>File Ready to Update</p>
+                            <button onClick={(e) => { e.stopPropagation(); setPendingImport(null); }} style={{ fontSize: '10px', background: 'none', border: 'none', color: '#ef4444', textDecoration: 'underline', cursor: 'pointer' }}>Remove File</button>
+                          </div>
+                        ) : (
+                          <div style={{ pointerEvents: 'none', opacity: 0.5 }}>
+                            <FolderOpen size={32} style={{ marginBottom: '12px' }} />
+                            <p style={{ fontSize: '13px', color: '#94a3b8', margin: 0 }}><strong>Drag & Drop .ini</strong> to update this profile</p>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* STEP 3: EXECUTION STYLE */}
+                    <AnimatePresence>
+                      {pendingImport && (
+                        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} style={{ display: 'flex', flexDirection: 'column', gap: '16px', background: 'rgba(16, 185, 129, 0.03)', padding: '24px', borderRadius: '24px', border: '1px solid rgba(16, 185, 129, 0.1)' }}>
+                          <label style={{ fontSize: '11px', fontWeight: '900', color: '#10b981', textTransform: 'uppercase', letterSpacing: '1.5px' }}>Application Style</label>
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                            <button onClick={() => setImportMethod('partial')} className={`glass-btn ${importMethod === 'partial' ? 'active' : ''}`} style={{ height: '60px', fontSize: '12px', background: importMethod === 'partial' ? 'rgba(16, 185, 129, 0.2)' : 'rgba(255,255,255,0.02)', borderColor: importMethod === 'partial' ? '#10b981' : 'rgba(255,255,255,0.05)', borderRadius: '16px' }}>
+                              <Zap size={16} /> SMART SYNC
+                            </button>
+                            <button onClick={() => setImportMethod('full')} className={`glass-btn ${importMethod === 'full' ? 'active' : ''}`} style={{ height: '60px', fontSize: '12px', background: importMethod === 'full' ? 'rgba(239, 68, 68, 0.2)' : 'rgba(255,255,255,0.02)', borderColor: importMethod === 'full' ? '#ef4444' : 'rgba(255,255,255,0.05)', borderRadius: '16px' }}>
+                              <AlertTriangle size={16} /> FULL OVERWRITE
+                            </button>
+                          </div>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+
+                    {/* Quick Info / Tip */}
+                    <div style={{ padding: '16px', background: 'rgba(59, 130, 246, 0.05)', borderRadius: '16px', border: '1px solid rgba(59, 130, 246, 0.1)', display: 'flex', gap: '12px', alignItems: 'center' }}>
+                      <Zap size={18} style={{ color: '#60a5fa' }} />
+                      <p style={{ fontSize: '11px', color: '#94a3b8', margin: 0, lineHeight: 1.4 }}>
+                        Loading a profile will replace your current <strong>servertest.ini</strong> configuration.
+                      </p>
+                    </div>
+                  </>
+                )}
+              </div>
+
+              {/* FOOTER ACTIONS */}
+              <div style={{ padding: '24px 32px 32px', borderTop: '1px solid rgba(255,255,255,0.05)', background: 'rgba(0,0,0,0.2)' }}>
+                <div style={{ display: 'flex', gap: '12px' }}>
+                  <button
+                    onClick={() => { setProfilesOpen(false); setPendingImport(null); }}
+                    className="glass-btn"
+                    style={{ padding: '14px', flexGrow: 1, border: 'none' }}
+                  >
+                    Close
+                  </button>
+                  <button
+                    onClick={async () => {
+                      setIsProcessingProfile(true);
+                      try {
+                        if (pendingImport) {
+                          const response = await fetch(`${API_BASE}/api/profiles/import`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                              src_path: pendingImport.path,
+                              is_community: false,
+                              target_name: customPresetName.trim() || pendingImport.name
+                            })
+                          });
+                          const result = await response.json();
+                          if (result.status === 'success') {
+                            await handleProfileLoad(customPresetName.trim() || pendingImport.name, false, importMethod);
+                          } else {
+                            showNotification(result.message, 'warning');
+                          }
+                        } else if (isNamingNew && customPresetName.trim()) {
+                          // CASE 2: CREATING NEW EMPTY PROFILE
+                          const response = await fetch(`${API_BASE}/api/profiles/save`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ name: customPresetName.trim() })
+                          });
+                          const result = await response.json();
+                          if (result.status === 'success') {
+                            await handleProfileLoad(customPresetName.trim(), false, 'full');
+                          } else {
+                            showNotification(result.message, 'warning');
+                          }
+                        } else if (selectedProfile) {
+                          // CASE 3: LOADING EXISTING PROFILE
+                          await handleProfileLoad(selectedProfile.name, selectedProfile.isCommunity, 'full');
+                        }
+                      } catch (err) {
+                        showNotification(`Critical error during save: ${err}`, 'warning');
+                      } finally {
+                        setIsProcessingProfile(false);
+                        setProfilesOpen(false);
+                        setPendingImport(null);
+                      }
+                    }}
+                    className="premium-btn-action premium-btn-primary"
+                    style={{
+                      padding: '14px 28px', flexGrow: 2,
+                      background: isProcessingProfile ? '#1e293b' : 'linear-gradient(135deg, #10b981, #059669)',
+                      color: 'white', borderRadius: '14px',
+                      opacity: (!customPresetName.trim() && !selectedProfile) || isProcessingProfile ? 0.5 : 1
+                    }}
+                    disabled={(!customPresetName.trim() && !selectedProfile) || isProcessingProfile}
+                  >
+                    <Save size={18} className={isProcessingProfile ? 'animate-spin' : ''} />
+                    {isProcessingProfile ? 'PROCESSING...' :
+                      pendingImport ? 'IMPORT & APPLY' : 
+                      isNamingNew ? 'CREATE NEW PROFILE' : 'LOAD SELECTED PROFILE'}
+                  </button>
+                </div>
               </div>
             </motion.div>
           </motion.div>
@@ -1638,17 +1954,17 @@ const App: React.FC = () => {
                     Typically: <code>C:\Users\{window.process?.env?.USERNAME || 'User'}\Zomboid</code>
                   </p>
                   <div style={{ display: 'flex', gap: '8px' }}>
-                    <input 
+                    <input
                       readOnly
-                      type="text" 
-                      placeholder="Folder not selected..." 
-                      className="glass-input" 
+                      type="text"
+                      placeholder="Folder not selected..."
+                      className="glass-input"
                       value={zomboidPath}
                       style={{ flexGrow: 1, padding: '10px', borderRadius: '10px', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', color: 'white', fontSize: '11px' }}
                     />
-                    <button 
+                    <button
                       onClick={() => handleBackupPathStep('zomboid')}
-                      className="glass-btn" 
+                      className="glass-btn"
                       style={{ padding: '8px 12px', borderColor: zomboidPath ? '#3b82f6' : 'rgba(255,255,255,0.1)' }}
                     >
                       <FolderOpen size={16} />
@@ -1665,17 +1981,17 @@ const App: React.FC = () => {
                     Recommendation: Area de Trabalho (Desktop)
                   </p>
                   <div style={{ display: 'flex', gap: '8px' }}>
-                    <input 
+                    <input
                       readOnly
-                      type="text" 
-                      placeholder="Destination not selected..." 
-                      className="glass-input" 
+                      type="text"
+                      placeholder="Destination not selected..."
+                      className="glass-input"
                       value={backupDest}
                       style={{ flexGrow: 1, padding: '10px', borderRadius: '10px', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', color: 'white', fontSize: '11px' }}
                     />
-                    <button 
+                    <button
                       onClick={() => handleBackupPathStep('dest')}
-                      className="glass-btn" 
+                      className="glass-btn"
                       style={{ padding: '8px 12px', borderColor: backupDest ? '#3b82f6' : 'rgba(255,255,255,0.1)' }}
                     >
                       <FolderOpen size={16} />
@@ -1689,7 +2005,7 @@ const App: React.FC = () => {
                   disabled={!zomboidPath || !backupDest || backupLoading}
                   onClick={handleBackupExecution}
                   className="premium-btn-action premium-btn-primary"
-                  style={{ 
+                  style={{
                     padding: '16px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px',
                     opacity: (!zomboidPath || !backupDest || backupLoading) ? 0.5 : 1,
                     background: backupLoading ? 'var(--text-secondary)' : 'white'
@@ -1719,8 +2035,8 @@ const App: React.FC = () => {
             animate={{ opacity: 1, y: 0, x: '-50%' }}
             exit={{ opacity: 0, y: 50, x: '-50%' }}
             style={{
-              position: 'fixed', bottom: '32px', left: '50%', zIndex: 3000,
-              background: notification.type === 'success' ? 'rgba(34, 197, 94, 0.9)' : (notification.type === 'warning' ? 'rgba(245, 158, 11, 0.9)' : 'rgba(59, 130, 246, 0.9)'),
+              position: 'fixed', bottom: '32px', left: '50%', zIndex: 9999,
+              background: notification?.type === 'success' ? 'rgba(34, 197, 94, 0.9)' : (notification?.type === 'warning' ? 'rgba(245, 158, 11, 0.9)' : 'rgba(59, 130, 246, 0.9)'),
               color: 'white', padding: '12px 24px', borderRadius: '16px', fontWeight: 'bold',
               boxShadow: '0 10px 25px rgba(0,0,0,0.3)', backdropFilter: 'blur(8px)',
               display: 'flex', alignItems: 'center', gap: '10px'
@@ -1752,14 +2068,14 @@ const App: React.FC = () => {
             </div>
             <div style={{ width: '1px', height: '30px', background: 'rgba(255,255,255,0.1)' }} />
             <div style={{ display: 'flex', gap: '8px' }}>
-              <button 
+              <button
                 className="premium-btn-action"
                 style={{ padding: '8px 16px', fontSize: '11px', background: 'linear-gradient(135deg, #0891b2 0%, #059669 100%)', color: 'white', border: 'none', boxShadow: '0 0 15px rgba(5, 150, 105, 0.3)' }}
                 onClick={() => handleBulkAction('activate-bulk')}
               >
                 PROCEED TO ACTIVATE
               </button>
-              <button 
+              <button
                 onClick={() => setSelectedIds([])}
                 style={{ padding: '8px 16px', fontSize: '11px', background: 'rgba(255,255,255,0.05)', color: '#94a3b8', border: 'none', borderRadius: '12px', cursor: 'pointer' }}
               >
@@ -1778,8 +2094,8 @@ const App: React.FC = () => {
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             className="modal-overlay"
-            style={{ 
-              background: 'rgba(2, 6, 23, 0.9)', 
+            style={{
+              background: 'rgba(2, 6, 23, 0.9)',
               backdropFilter: 'blur(10px)',
               padding: '20px'
             }}
@@ -1799,9 +2115,9 @@ const App: React.FC = () => {
               </div>
 
               <div style={{ position: 'relative', zIndex: 1 }}>
-                <div style={{ 
-                  width: '80px', height: '80px', borderRadius: '24px', 
-                  background: 'rgba(245, 158, 11, 0.1)', display: 'flex', 
+                <div style={{
+                  width: '80px', height: '80px', borderRadius: '24px',
+                  background: 'rgba(245, 158, 11, 0.1)', display: 'flex',
                   alignItems: 'center', justifyContent: 'center', margin: '0 auto 24px',
                   boxShadow: '0 0 30px rgba(245, 158, 11, 0.15)'
                 }}>
@@ -1811,7 +2127,7 @@ const App: React.FC = () => {
                 <h1 style={{ fontSize: '24px', fontWeight: '900', color: '#fff', marginBottom: '8px', letterSpacing: '-0.5px' }}>
                   {modalData?.title || "System Alert"}
                 </h1>
-                
+
                 {modalData?.isBulk ? (
                   <div style={{ marginBottom: '24px' }}>
                     <div style={{ background: 'rgba(15, 23, 42, 0.6)', padding: '16px', borderRadius: '16px', textAlign: 'left', border: '1px solid rgba(255,255,255,0.05)' }}>
@@ -1821,8 +2137,8 @@ const App: React.FC = () => {
                       <div style={{ maxHeight: '200px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '8px' }}>
                         {modalData.conflicts.map((c: any, i: number) => (
                           <div key={i} style={{ padding: '10px', background: 'rgba(255,255,255,0.03)', borderRadius: '10px', fontSize: '11px', color: '#cbd5e1', border: '1px solid rgba(255,255,255,0.05)' }}>
-                             Conflict between <strong>{c.mod_id}</strong> and <strong>{c.conflicting_with}</strong>
-                             <div style={{ opacity: 0.6, marginTop: '4px' }}>{c.message}</div>
+                            Conflict between <strong>{c.mod_id}</strong> and <strong>{c.conflicting_with}</strong>
+                            <div style={{ opacity: 0.6, marginTop: '4px' }}>{c.message}</div>
                           </div>
                         ))}
                       </div>
@@ -1847,25 +2163,25 @@ const App: React.FC = () => {
                 )}
 
                 {modalData?.can_bypass && (
-                  <div 
+                  <div
                     onClick={() => setRememberConflict(!rememberConflict)}
-                    style={{ 
-                      display: 'flex', alignItems: 'center', gap: '10px', 
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: '10px',
                       justifyContent: 'center', marginBottom: '32px', cursor: 'pointer',
                       padding: '12px', borderRadius: '16px', background: rememberConflict ? 'rgba(59, 130, 246, 0.1)' : 'transparent',
                       transition: 'all 0.2s'
                     }}
                   >
-                     <div style={{ 
-                        width: '18px', height: '18px', borderRadius: '5px', 
-                        border: '2px solid #3b82f6', background: rememberConflict ? '#3b82f6' : 'transparent',
-                        display: 'flex', alignItems: 'center', justifyContent: 'center'
-                     }}>
-                       {rememberConflict && <div style={{ width: '8px', height: '8px', background: 'white', borderRadius: '1px' }} />}
-                     </div>
-                     <span style={{ fontSize: '12px', color: rememberConflict ? '#fff' : '#64748b', fontWeight: 'bold' }}>
-                       Ignore future identical conflicts for this mod set
-                     </span>
+                    <div style={{
+                      width: '18px', height: '18px', borderRadius: '5px',
+                      border: '2px solid #3b82f6', background: rememberConflict ? '#3b82f6' : 'transparent',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center'
+                    }}>
+                      {rememberConflict && <div style={{ width: '8px', height: '8px', background: 'white', borderRadius: '1px' }} />}
+                    </div>
+                    <span style={{ fontSize: '12px', color: rememberConflict ? '#fff' : '#64748b', fontWeight: 'bold' }}>
+                      Ignore future identical conflicts for this mod set
+                    </span>
                   </div>
                 )}
 
@@ -1882,11 +2198,11 @@ const App: React.FC = () => {
                             handleIgnoreFingerprint(modalData.fingerprint);
                           }
                         }
-                        
+
                         if (modalData.isBulk) {
-                           handleBulkAction(modalData.originalAction.endpoint, true, modalData.conflicts.map((c: any) => c.fingerprint));
+                          handleBulkAction(modalData.originalAction.endpoint, true, modalData.conflicts.map((c: any) => c.fingerprint));
                         } else {
-                           handleAction(modalData.originalAction.endpoint, modalData.originalAction.payload, true);
+                          handleAction(modalData.originalAction.endpoint, modalData.originalAction.payload, true);
                         }
                         setModalOpen(false);
                       }}
@@ -1896,10 +2212,10 @@ const App: React.FC = () => {
                   )}
                   <button
                     onClick={() => setModalOpen(false)}
-                    style={{ 
-                      background: 'white', color: '#000', border: 'none', 
-                      padding: '16px', borderRadius: '16px', cursor: 'pointer', 
-                      fontWeight: '900', fontSize: '13px' 
+                    style={{
+                      background: 'white', color: '#000', border: 'none',
+                      padding: '16px', borderRadius: '16px', cursor: 'pointer',
+                      fontWeight: '900', fontSize: '13px'
                     }}
                   >
                     CANCEL & GO BACK

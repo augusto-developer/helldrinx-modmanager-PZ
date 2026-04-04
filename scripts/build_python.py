@@ -17,5 +17,6 @@ PyInstaller.__main__.run([
     '--add-data=src;src', # Include the logic and source files
     '--distpath=dist-python',
     '--workpath=build-python',
-    '--icon=build/icon.ico',
+    '--icon=build/helldrinx.ico',
+    '--version-file=scripts/pyinstaller_version.txt',
 ])

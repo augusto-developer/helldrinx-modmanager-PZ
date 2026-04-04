@@ -4,6 +4,7 @@ import react from '@vitejs/plugin-react'
 export default defineConfig({
   plugins: [react()],
   base: './',
+  publicDir: 'build', // Serve assets from the 'build' folder (like builder_cat.png)
   server: {
     port: 5173,
     strictPort: true,

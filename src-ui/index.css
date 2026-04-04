@@ -133,15 +133,72 @@ body {
 }
 
 .glass-btn.btn-danger {
-  background: rgba(239, 68, 68, 0.1);
+  background: rgba(139, 38, 18, 0.1);
   color: #ef4444;
-  border-color: rgba(239, 68, 68, 0.2);
+  border-color: rgba(139, 38, 18, 0.2);
 }
 
 .glass-btn.btn-danger:hover {
-  background: rgba(239, 68, 68, 0.2);
-  border-color: rgba(239, 68, 68, 0.3);
-  box-shadow: 0 0 15px rgba(239, 68, 68, 0.2);
+  background: rgba(139, 38, 18, 0.2);
+  border-color: rgba(139, 38, 18, 0.4);
+  box-shadow: 0 0 20px rgba(139, 38, 18, 0.2);
+}
+
+/* Elite Action Groups */
+.header-controls {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.action-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(255, 255, 255, 0.03);
+  padding: 4px;
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.status-pill {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 16px;
+  border-radius: 12px;
+  background: rgba(59, 130, 246, 0.08);
+  border: 1px solid rgba(59, 130, 246, 0.15);
+  color: #60a5fa;
+  cursor: pointer;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.status-pill:hover {
+  background: rgba(59, 130, 246, 0.12);
+  border-color: rgba(59, 130, 246, 0.3);
+  transform: translateY(-1px);
+}
+
+.status-pill.dirty {
+  background: rgba(234, 179, 8, 0.08);
+  border-color: rgba(234, 179, 8, 0.3);
+  color: #facc15;
+  box-shadow: 0 0 15px rgba(234, 179, 8, 0.1);
+}
+
+.pill-tag {
+  font-size: 9px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: rgba(59, 130, 246, 0.15);
+}
+
+.status-pill.dirty .pill-tag {
+  background: rgba(234, 179, 8, 0.2);
 }
 
 .search-box {

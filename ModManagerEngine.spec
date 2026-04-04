@@ -32,7 +32,8 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon=['build\\icon.ico'],
+    version='scripts\\pyinstaller_version.txt',
+    icon=['build\\helldrinx.ico'],
 )
 coll = COLLECT(
     exe,
