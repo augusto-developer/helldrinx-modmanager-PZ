@@ -1,7 +1,7 @@
 import { app, BrowserWindow, ipcMain, dialog, shell } from 'electron';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { spawn } from 'child_process';
+import { spawn, exec } from 'child_process';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -53,6 +53,7 @@ function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1200,
     height: 900,
+    icon: path.join(__dirname, '../build/helldrinx.ico'),
     webPreferences: {
       nodeIntegration: true,
       contextIsolation: false,
@@ -126,12 +127,33 @@ app.whenReady().then(() => {
 
 
 
+function killPythonProcess() {
+  if (pythonProcess) {
+    console.log('Attemping to kill Python process tree...');
+    if (process.platform === 'win32') {
+      // Force kill the entire process tree on Windows
+      exec(`taskkill /F /T /PID ${pythonProcess.pid}`, (err) => {
+        if (err) {
+          console.error('Failed to kill python process tree with taskkill:', err);
+          pythonProcess.kill();
+        }
+      });
+    } else {
+      pythonProcess.kill();
+    }
+    pythonProcess = null;
+  }
+}
+
 app.on('window-all-closed', () => {
+  killPythonProcess();
   if (process.platform !== 'darwin') app.quit();
 });
 
 app.on('will-quit', () => {
-  if (pythonProcess) {
-    pythonProcess.kill();
-  }
+  killPythonProcess();
+});
+
+app.on('before-quit', () => {
+  killPythonProcess();
 });

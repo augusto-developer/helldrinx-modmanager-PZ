@@ -28,6 +28,7 @@ import {
   UploadCloud
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import bgCats from './assets/helldrinx_bg_pure.png';
 
 const API_BASE = 'http://localhost:8000';
 
@@ -101,6 +102,8 @@ const App: React.FC = () => {
   const [backupModalOpen, setBackupModalOpen] = useState(false);
   const [zomboidPath, setZomboidPath] = useState<string>('');
   const [backupDest, setBackupDest] = useState<string>('');
+  const [enhanceModalOpen, setEnhanceModalOpen] = useState(false);
+  const [isEnhancing, setIsEnhancing] = useState(false);
 
   // Calculate Issues (Missing dependencies, Conflicts)
   const issues = React.useMemo(() => {
@@ -372,6 +375,8 @@ const App: React.FC = () => {
     if (!zomboidPath || !backupDest) return;
 
     setBackupLoading(true);
+    showNotification("Generating backup... This may take a while depending on your Saves folder size.", "info");
+    
     try {
       const resp = await fetch(`${API_BASE}/api/backup`, {
         method: 'POST',
@@ -387,7 +392,7 @@ const App: React.FC = () => {
       }
     } catch (err) {
       console.error('Backup failed:', err);
-      showNotification('Backup failed due to a system error.', 'warning');
+      showNotification('Backup failed due to a system error. Check if the game is running.', 'warning');
     } finally {
       setBackupLoading(false);
     }
@@ -398,19 +403,36 @@ const App: React.FC = () => {
     try {
       const res = await fetch(`${API_BASE}/api/sync`, { method: 'POST' });
       const data = await res.json();
-      if (data.status === 'error') {
-        setModalData({
-          title: data.title || 'Sync Error',
-          message: data.message || 'An error occurred while syncing mods.',
-          remediation: data.remediation || 'Check your connection or server logs.'
-        });
-        setModalOpen(true);
-      }
       await fetchMods();
+      showNotification("Discovery completed! Mod list is up to date.", "info");
     } catch (err) {
       console.error('Sync failed:', err);
     } finally {
       setSyncing(false);
+    }
+  };
+
+  const handleEnhance = async () => {
+    setIsEnhancing(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/enhance`, { method: 'POST' });
+      const data = await res.json();
+      if (data.status === 'success') {
+        showNotification(data.message, 'success');
+        if (data.error) {
+          setModalData(data.error);
+          setModalOpen(true);
+        }
+        await fetchMods();
+        setEnhanceModalOpen(false);
+      } else {
+        showNotification(data.message || 'Error occurred during enhancement.', 'warning');
+      }
+    } catch (err) {
+      console.error('Enhance failed:', err);
+      showNotification('Communication error with the engine.', 'warning');
+    } finally {
+      setIsEnhancing(false);
     }
   };
 
@@ -696,13 +718,47 @@ const App: React.FC = () => {
       </AnimatePresence>
 
       {/* Header Section */}
-      <header className="header">
-        <div className="brand-section">
-          <span className="brand-subtitle">Project Zomboid</span>
-          <h1>HellDrinx - Tool<span style={{ color: '#d97706' }}> | ModManager</span></h1>
+      <header className="header" style={{
+        position: 'relative',
+        overflow: 'hidden',
+        flexShrink: 0, // Prevent header from being squeezed by mod list
+        minHeight: '120px' // Ensure a consistent height for the cinematic view
+      }}>
+        {/* Cinematic Layer 0: Panoramic Cats Night Ops (Fitted) */}
+        <div style={{
+          position: 'absolute',
+          inset: 0,
+          zIndex: 0,
+          pointerEvents: 'none'
+        }}>
+          <img
+            src={bgCats}
+            alt=""
+            style={{
+              width: '100%',
+              height: '100%',
+              objectFit: 'cover',
+              objectPosition: '15% 15%', // Shifted left & Focused on faces
+              opacity: 1,
+              filter: 'brightness(1.1) contrast(1.2) saturate(1.15)'
+            }}
+          />
+          {/* Ambient Overlay for contrast and readability */}
+          <div style={{
+            position: 'absolute',
+            inset: 0,
+            background: 'linear-gradient(to right, rgba(13, 11, 10, 0.6) 0%, rgba(13, 11, 10, 0) 35%, rgba(13, 11, 10, 0) 75%, rgba(13, 11, 10, 0.6) 100%)',
+          }} />
         </div>
 
-        <div className="header-controls">
+        <div className="brand-section" style={{ position: 'relative', zIndex: 1 }}>
+          <span className="brand-subtitle">Project Zomboid</span>
+          <h1 style={{ textShadow: '2px 2px 15px rgba(0,0,0,0.9), 0 0 20px rgba(255,69,0,0.2)' }}>
+            HellDrinx - Tool<span style={{ color: '#d97706' }}> | ModManager</span>
+          </h1>
+        </div>
+
+        <div className="header-controls" style={{ position: 'relative', zIndex: 1 }}>
           {/* GROUP 1: PRESET STATUS & SAVE */}
           <div className="action-group">
             <motion.div
@@ -719,7 +775,7 @@ const App: React.FC = () => {
                   {selectedProfile ? selectedProfile.name.toUpperCase() : 'NO PRESET'}
                 </span>
               </div>
-              
+
               {/* Contextual Save Button INSIDE the pill or next to it for tight integration */}
               <AnimatePresence>
                 {isProfileDirty && (
@@ -1364,32 +1420,15 @@ const App: React.FC = () => {
                 <div style={{ marginTop: '8px' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: '8px' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                      <label style={{ display: 'block', margin: 0, fontSize: '10px', color: '#64748b', fontWeight: 'bold', textTransform: 'uppercase' }}>Sorting Rules Editor</label>
-                      <span title="Sorting rules serve to correctly order mods, preventing them from crashing the server. Be careful, always backup your server before modifying this!" style={{ cursor: 'help', display: 'flex' }}>
-                        <Info size={14} color="#64748b" />
-                      </span>
+                      <label style={{ display: 'block', margin: 0, fontSize: '10px', color: '#64748b', fontWeight: 'bold', textTransform: 'uppercase' }}>Advanced Maintenance</label>
                     </div>
-                    <button
-                      onClick={async () => {
-                        try {
-                          await fetch(`${API_BASE}/api/sorting-rules/open`, { method: 'POST' });
-                        } catch (e) { console.error(e); }
-                      }}
-                      style={{ background: 'transparent', border: '1px solid #334155', color: '#3b82f6', borderRadius: '6px', fontSize: '10px', padding: '4px 12px', cursor: 'pointer', fontWeight: 'bold' }}
-                    >
-                      OPEN IN NOTEPAD
-                    </button>
                   </div>
-                  <textarea
-                    value={rulesText}
-                    onChange={(e) => setRulesText(e.target.value)}
-                    style={{
-                      width: '100%', minHeight: '180px', background: '#020617', border: '1px solid #334155', borderRadius: '12px',
-                      padding: '16px', color: '#a5b4fc', fontFamily: '"Fira Code", monospace', fontSize: '12px', outline: 'none', resize: 'vertical'
-                    }}
-                    placeholder="[modID]\nloadAfter=mod_x, mod_y\nloadFirst=on\ncategory=map"
-                    spellCheck={false}
-                  />
+                  <div style={{ padding: '16px', background: 'rgba(59, 130, 246, 0.05)', borderRadius: '16px', border: '1px solid rgba(59, 130, 246, 0.1)', display: 'flex', gap: '12px', alignItems: 'center' }}>
+                    <Zap size={18} style={{ color: '#60a5fa' }} />
+                    <p style={{ fontSize: '11px', color: '#94a3b8', margin: 0 }}>
+                      The <strong>Sorting Rule Editor</strong> has been moved to the main dashboard under the <strong>Enhance Mods</strong> button for better workflow access.
+                    </p>
+                  </div>
                 </div>
 
                 <div style={{ marginTop: '24px', padding: '16px', background: 'rgba(239, 68, 68, 0.05)', borderRadius: '16px', border: '1px solid rgba(239, 68, 68, 0.1)' }}>
@@ -1441,34 +1480,62 @@ const App: React.FC = () => {
       {/* Footer Info */}
       <footer style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', color: '#475569', fontSize: '0.70rem', padding: '8px 16px', background: 'rgba(15, 23, 42, 0.5)', borderTop: '1px solid rgba(255,255,255,0.05)' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-          <span>v2.1 NODE PERFORMANCE EDITION</span>
+          <span>developed by: augusto-developer (Lopez)</span>
         </div>
 
-        <motion.button
-          whileHover={{ scale: 1.05, boxShadow: '0 0 15px rgba(5, 150, 105, 0.3)' }}
-          whileTap={{ scale: 0.95 }}
-          onClick={syncMods}
-          disabled={syncing}
-          style={{
-            fontSize: '11px',
-            padding: '6px 20px',
-            background: 'linear-gradient(135deg, #d97706 0%, #8b2612 100%)',
-            color: 'white',
-            border: 'none',
-            borderRadius: '12px',
-            boxShadow: '0 2px 10px rgba(139, 38, 18, 0.4)',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px',
-            fontWeight: 'bold',
-            opacity: syncing ? 0.7 : 1,
-            cursor: syncing ? 'not-allowed' : 'pointer',
-            zIndex: 10
-          }}
-        >
-          <RefreshCw size={14} className={syncing ? 'animate-spin' : ''} />
-          {syncing ? 'SYNCING...' : 'Sync Now !'}
-        </motion.button>
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+          <motion.button
+            whileHover={{ scale: 1.05, boxShadow: '0 0 20px rgba(59, 130, 246, 0.2)' }}
+            whileTap={{ scale: 0.95 }}
+            onClick={syncMods}
+            disabled={syncing}
+            style={{
+              fontSize: '11px',
+              padding: '6px 20px',
+              background: 'rgba(15, 23, 42, 0.8)',
+              color: '#3b82f6',
+              border: '1px solid rgba(59, 130, 246, 0.3)',
+              borderRadius: '12px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              fontWeight: 'bold',
+              opacity: syncing ? 0.7 : 1,
+              cursor: syncing ? 'not-allowed' : 'pointer'
+            }}
+          >
+            <RefreshCw size={14} className={syncing ? 'animate-spin' : ''} />
+            {syncing ? 'SCANNING...' : 'Manual Sync'}
+          </motion.button>
+
+          <motion.button
+            whileHover={{ scale: 1.05, boxShadow: '0 0 20px rgba(217, 119, 6, 0.3)' }}
+            whileTap={{ scale: 0.95 }}
+            onClick={async () => {
+              await fetchRules();
+              setEnhanceModalOpen(true);
+            }}
+            disabled={isEnhancing}
+            style={{
+              fontSize: '11px',
+              padding: '6px 20px',
+              background: 'linear-gradient(135deg, #d97706 0%, #8b2612 100%)',
+              color: 'white',
+              border: 'none',
+              borderRadius: '12px',
+              boxShadow: '0 2px 10px rgba(139, 38, 18, 0.4)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              fontWeight: 'bold',
+              opacity: isEnhancing ? 0.7 : 1,
+              cursor: isEnhancing ? 'not-allowed' : 'pointer'
+            }}
+          >
+            <Zap size={14} className={isEnhancing ? 'animate-spin' : ''} />
+            {isEnhancing ? 'ENHANCING...' : 'Enhance Mods !'}
+          </motion.button>
+        </div>
         <div style={{ display: 'flex', gap: '16px' }}>
           <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }} title="Workshop subscriptions count"><Package size={12} /> {new Set(mods.map(m => m.workshop_id)).size} Subscribed</span>
           <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}><Trash2 size={12} /> {trash.length} Archived</span>
@@ -1664,10 +1731,10 @@ const App: React.FC = () => {
               {/* Scrollable Body */}
               {/* Scrollable Body */}
               <div className="premium-modal-body" style={{ padding: '32px', display: 'flex', flexDirection: 'column', gap: '24px', overflowY: 'auto', flexGrow: 1, scrollbarWidth: 'thin', justifyContent: isNamingNew ? 'center' : 'flex-start' }}>
-                
+
                 {isNamingNew ? (
                   /* NEW FAST-CREATE UI */
-                  <motion.div 
+                  <motion.div
                     initial={{ scale: 0.9, opacity: 0 }}
                     animate={{ scale: 1, opacity: 1 }}
                     style={{ background: 'rgba(59, 130, 246, 0.05)', padding: '40px', borderRadius: '32px', border: '1px solid rgba(59, 130, 246, 0.15)', textAlign: 'center', display: 'flex', flexDirection: 'column', gap: '24px', boxShadow: '0 20px 40px rgba(0,0,0,0.4)' }}
@@ -1675,7 +1742,7 @@ const App: React.FC = () => {
                     <div style={{ background: 'rgba(59, 130, 246, 0.1)', color: '#60a5fa', width: '64px', height: '64px', borderRadius: '20px', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 8px' }}>
                       <Plus size={32} />
                     </div>
-                    
+
                     <div>
                       <h2 style={{ fontSize: '22px', fontWeight: '800', color: '#fff', marginBottom: '8px' }}>Insert the Profile Name:</h2>
                       <p style={{ fontSize: '12px', color: '#64748b', textTransform: 'uppercase', letterSpacing: '2px' }}>Type carefully and confirm below</p>
@@ -1698,20 +1765,20 @@ const App: React.FC = () => {
                     />
 
                     <div style={{ display: 'flex', gap: '12px' }}>
-                      <button 
+                      <button
                         onClick={() => setIsNamingNew(false)}
-                        className="glass-btn" 
+                        className="glass-btn"
                         style={{ flex: 1, justifyContent: 'center', opacity: 0.6 }}
                       >
                         CANCEL
                       </button>
-                      <button 
+                      <button
                         disabled={!customPresetName.trim()}
                         onClick={async () => {
                           await handleProfileSave(customPresetName);
                           setIsNamingNew(false);
                         }}
-                        className="btn-primary" 
+                        className="btn-primary"
                         style={{ flex: 2, justifyContent: 'center', padding: '16px', borderRadius: '16px' }}
                       >
                         CONFIRM & CREATE
@@ -1910,8 +1977,8 @@ const App: React.FC = () => {
                   >
                     <Save size={18} className={isProcessingProfile ? 'animate-spin' : ''} />
                     {isProcessingProfile ? 'PROCESSING...' :
-                      pendingImport ? 'IMPORT & APPLY' : 
-                      isNamingNew ? 'CREATE NEW PROFILE' : 'LOAD SELECTED PROFILE'}
+                      pendingImport ? 'IMPORT & APPLY' :
+                        isNamingNew ? 'CREATE NEW PROFILE' : 'LOAD SELECTED PROFILE'}
                   </button>
                 </div>
               </div>
@@ -1921,6 +1988,167 @@ const App: React.FC = () => {
       </AnimatePresence>
 
       {/* Backup Modal */}
+      {/* Enhance Mods Modal (The Intelligence Hub) */}
+      <AnimatePresence>
+        {enhanceModalOpen && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="premium-modal-overlay"
+            style={{ zIndex: 4500 }}
+          >
+            <motion.div
+              initial={{ scale: 0.9, y: 20, opacity: 0 }}
+              animate={{ scale: 1, y: 0, opacity: 1 }}
+              exit={{ scale: 0.9, y: 20, opacity: 0 }}
+              className="premium-modal"
+              style={{
+                maxWidth: '1100px', width: '95%', padding: '0',
+                maxHeight: '90vh', display: 'flex', flexDirection: 'column',
+                background: '#020617', border: '1px solid rgba(251, 146, 60, 0.2)',
+                boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.7), 0 0 60px rgba(217, 119, 6, 0.05)'
+              }}
+            >
+              <div className="premium-modal-header" style={{ padding: '24px 30px', background: 'linear-gradient(to bottom, rgba(217, 119, 6, 0.05), transparent)', borderBottom: '1px solid rgba(255,255,255,0.05)', flexShrink: 0, position: 'relative' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
+                  <div style={{ background: 'rgba(217, 119, 6, 0.1)', color: '#f59e0b', padding: '12px', borderRadius: '14px' }}>
+                    <Zap size={28} />
+                  </div>
+                  <div>
+                    <h2 className="premium-modal-title" style={{ fontSize: '24px' }}>Enhance Mods Engine</h2>
+                    <p className="premium-modal-subtitle">Intelligent Sorting & Conflict Resolution</p>
+                  </div>
+                </div>
+
+                <button
+                  onClick={() => setEnhanceModalOpen(false)}
+                  style={{ position: 'absolute', top: '24px', right: '24px', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.05)', color: '#64748b', cursor: 'pointer', padding: '8px', borderRadius: '10px', display: 'flex', transition: 'all 0.2s' }}
+                  onMouseOver={(e) => { e.currentTarget.style.color = '#ef4444'; e.currentTarget.style.background = 'rgba(239, 68, 68, 0.1)'; }}
+                  onMouseOut={(e) => { e.currentTarget.style.color = '#64748b'; e.currentTarget.style.background = 'rgba(255,255,255,0.03)'; }}
+                >
+                  <XCircle size={20} />
+                </button>
+              </div>
+
+              <div className="premium-modal-body" style={{ padding: '30px', flexGrow: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '24px' }}>
+                <div style={{ flexGrow: 1, display: 'flex', flexDirection: 'column' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: '10px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <label style={{ fontSize: '11px', fontWeight: '900', color: '#64748b', textTransform: 'uppercase', letterSpacing: '1px' }}>Sorting Rules Knowledge Base</label>
+                      <span title="Rules defined here will guide the order of mods in your servertest.ini" style={{ cursor: 'help', display: 'flex' }}>
+                        <Info size={14} color="#475569" />
+                      </span>
+                    </div>
+                    <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                      <motion.button
+                        whileHover={{ scale: 1.1, rotate: 180 }}
+                        whileTap={{ scale: 0.9 }}
+                        onClick={async () => {
+                          await fetchRules();
+                          showNotification("Rules reloaded from disk", "info");
+                        }}
+                        className="glass-btn"
+                        title="Reload from File"
+                        style={{
+                          padding: '0', width: '36px', height: '36px',
+                          background: 'rgba(57, 182, 246, 0.15)',
+                          border: '1px solid rgba(57, 182, 246, 0.3)',
+                          color: '#39b6f6',
+                          display: 'flex', alignItems: 'center', justifyContent: 'center'
+                        }}
+                      >
+                        <RefreshCw size={16} />
+                      </motion.button>
+                      <button
+                        onClick={() => fetch(`${API_BASE}/api/sorting-rules/open`, { method: 'POST' })}
+                        className="glass-btn" style={{ fontSize: '10px', padding: '4px 12px', height: '36px' }}
+                      >
+                        OPEN EXTERNAL EDITOR
+                      </button>
+                    </div>
+                  </div>
+                  <textarea
+                    value={rulesText}
+                    onChange={(e) => setRulesText(e.target.value)}
+                    style={{
+                      width: '100%', flexGrow: 1, minHeight: '400px', background: 'rgba(0,0,0,0.4)',
+                      border: '1px solid rgba(255,255,255,0.05)', borderRadius: '16px',
+                      padding: '20px', color: '#fbbf24', fontFamily: '"Fira Code", monospace',
+                      fontSize: '13px', outline: 'none', resize: 'none', lineHeight: '1.6',
+                      boxShadow: 'inset 0 2px 10px rgba(0,0,0,0.5)'
+                    }}
+                    placeholder="[modID]\nloadAfter=dependency_id\ncategory=core"
+                    spellCheck={false}
+                  />
+
+                  <div style={{ display: 'flex', justifyContent: 'center', marginTop: '16px' }}>
+                    <button
+                      onClick={async () => {
+                        await fetch(`${API_BASE}/api/sorting-rules/raw`, {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ content: rulesText }),
+                        });
+                        showNotification("Rules saved successfully", "success");
+                      }}
+                      className="glass-btn"
+                      style={{ padding: '10px 30px', borderColor: 'rgba(59, 130, 246, 0.4)', color: '#60a5fa', fontSize: '11px', fontWeight: 'bold', borderRadius: '12px', background: 'rgba(59, 130, 246, 0.05)' }}
+                    >
+                      <Save size={14} style={{ marginRight: '8px' }} />
+                      SAVE RULES ONLY
+                    </button>
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', flexShrink: 0 }}>
+                  <div style={{ padding: '12px', background: 'rgba(59, 130, 246, 0.05)', borderRadius: '12px', border: '1px solid rgba(59, 130, 246, 0.1)', display: 'flex', gap: '12px', alignItems: 'center' }}>
+                    <RefreshCw size={16} style={{ color: '#60a5fa' }} />
+                    <p style={{ fontSize: '10px', color: '#94a3b8', margin: 0 }}>
+                      <strong>Tip:</strong> If you edited rules externally, use the 🔄 button to reload the file.
+                    </p>
+                  </div>
+
+                  <div style={{ padding: '12px', background: 'rgba(217, 119, 6, 0.05)', borderRadius: '12px', border: '1px solid rgba(217, 119, 6, 0.1)', display: 'flex', gap: '12px', alignItems: 'center' }}>
+                    <Info size={16} style={{ color: '#f59e0b' }} />
+                    <p style={{ fontSize: '10px', color: '#94a3b8', margin: 0 }}>
+                      <strong>Tip:</strong> The Enhance Engine follows these rules during the topological sort to ensure server stability.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="premium-modal-actions" style={{ padding: '30px', background: 'rgba(0,0,0,0.2)', borderTop: '1px solid rgba(255,255,255,0.05)' }}>
+                <div style={{ display: 'flex', gap: '15px', justifyContent: 'center' }}>
+                  <button
+                    onClick={async () => {
+                      // Save rules first
+                      await fetch(`${API_BASE}/api/sorting-rules/raw`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ content: rulesText }),
+                      });
+                      handleEnhance();
+                    }}
+                    className="premium-btn-action premium-btn-primary"
+                    style={{
+                      width: '100%', maxWidth: '400px', padding: '18px',
+                      background: 'linear-gradient(135deg, #d97706 0%, #8b2612 100%)',
+                      boxShadow: '0 10px 40px rgba(139, 38, 18, 0.3)',
+                      fontSize: '14px'
+                    }}
+                    disabled={isEnhancing}
+                  >
+                    <Zap size={22} className={isEnhancing ? 'animate-spin' : ''} />
+                    {isEnhancing ? 'ENHANCING ENGINE...' : 'START ENHANCE PROCESS'}
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       <AnimatePresence>
         {backupModalOpen && (
           <motion.div

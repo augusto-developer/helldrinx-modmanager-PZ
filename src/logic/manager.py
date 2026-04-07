@@ -101,11 +101,16 @@ class PZModManager:
         self.load_server_config()
 
     def sync_servertest_ini(self):
-        """Consolidates workshop scanning and server config loading."""
+        """Unified synchronization point for workshop only (Discovery)."""
+        self.log("Manual Sync requested: Scanning Workshop and Trash...")
         self.scan_workshop()
-        self.load_server_config()
-        self.load_cache() # Ensure memory is updated
-        return True
+        self.load_server_config() # Just refresh view
+        return {"status": "success", "message": "Manual Sync completed. List updated."}
+
+    def enhance_servertest_ini(self):
+        """Applies sorting rules and categories to re-sort servertest.ini (Intelligence)."""
+        self.log("Enhance Mods requested: Applying sorting intelligence...")
+        return self._run_full_sync_logic()
 
     def load_settings(self):
         if os.path.exists(SETTINGS_FILE):
@@ -410,19 +415,32 @@ class PZModManager:
         return False
 
     def load_server_config(self):
-        """Reads servertest.ini to identify linked mods."""
+        """Reads servertest.ini to identify linked mods, workshop items, and maps."""
         if not os.path.exists(self.server_config_path):
+            self.log(f"WARNING: Config path not found: {self.server_config_path}")
             return "servertest.ini file not found!"
         try:
             self.server_mods = [] 
+            self.server_workshop_ids = []
+            self.server_maps = []
+            
             with open(self.server_config_path, "r", encoding="utf-8", errors="ignore") as f:
                 for line in f:
+                    line = line.strip()
                     if line.startswith("Mods="):
                         line_content = line.replace("Mods=", "").strip()
                         self.server_mods = [m for m in line_content.split(";") if m.strip()]
-                        break
+                    elif line.startswith("WorkshopItems="):
+                        line_content = line.replace("WorkshopItems=", "").strip()
+                        self.server_workshop_ids = [w for w in line_content.split(";") if w.strip()]
+                    elif line.startswith("Map="):
+                        line_content = line.replace("Map=", "").strip()
+                        self.server_maps = [m for m in line_content.split(";") if m.strip()]
+                        
+            self.log(f"Config loaded: {len(self.server_mods)} mods, {len(self.server_workshop_ids)} workshop IDs.")
             return None
         except Exception as e:
+            self.log(f"ERROR loading config: {e}")
             return str(e)
 
     def trash_mod(self, mod_id, workshop_id, mod_name):
@@ -488,9 +506,8 @@ class PZModManager:
         regex = r"^Map=(.*)$"
         return re.sub(regex, f"Map={';'.join(maps_to_include)}", content_str, flags=re.MULTILINE)
 
-    def sync_servertest_ini(self):
-        """Deep scan workshop and synchronize all config lines (Mods, Workshop, Maps)."""
-        self.scan_workshop()
+    def _run_full_sync_logic(self):
+        """Internal execution of the deep scan and synchronization."""
         self.load_server_config()
         
         if not os.path.exists(self.server_config_path):
@@ -500,31 +517,41 @@ class PZModManager:
             with open(self.server_config_path, "r", encoding="utf-8", errors="ignore") as f:
                 content = f.read()
                 
-            # Perform re-sorting
+            # Perform re-sorting using current server_mods
+            self.log(f"Sorting {len(self.server_mods)} mods...")
             sorted_mods, error = self._sort_mod_ids(self.server_mods)
             
             # Update all critical lines
             content = re.sub(r"^Mods=.*$", f"Mods={';'.join(sorted_mods)}", content, flags=re.MULTILINE)
             
-            # Build workshop items list based on current active mods + any existing IDs
-            # This ensures we don't lose IDs that might not have a mod_id detected yet
+            # Reconstruct workshop items:
+            # We use loaded IDs + mapping from current mods to ensure NO loss
             wids = set(self.server_workshop_ids)
             for mid in sorted_mods:
                 minfo = next((m for m in self.mods_data if m['id'] == mid), None)
                 if minfo:
                     wids.add(minfo['workshop_id'])
             
-            content = re.sub(r"^WorkshopItems=.*$", f"WorkshopItems={';'.join(self._sort_workshop_ids(list(wids), sorted_mods))}", content, flags=re.MULTILINE)
+            sorted_wids = self._sort_workshop_ids(list(wids), sorted_mods)
+            content = re.sub(r"^WorkshopItems=.*$", f"WorkshopItems={';'.join(sorted_wids)}", content, flags=re.MULTILINE)
+            
+            # Use dedicated helper for Map line (handles Muldraugh priority)
             content = self._update_map_line(content, sorted_mods)
             
             with open(self.server_config_path, "w", encoding="utf-8") as f:
                 f.write(content)
                 
+            # Refresh memory state
             self.load_server_config()
+            self.log("Sync completed successfully.")
             return {"status": "success", "message": "Sync completed successfully!", "error": error}
         except Exception as e:
-            print(f"Sync Error: {e}")
+            self.log(f"Sync Logic Error: {e}")
             return {"status": "error", "message": str(e)}
+
+    # Backwards compatibility alias
+    def sync_servertest_ini_v2(self):
+        return self.sync_servertest_ini()
 
     def activate_mod(self, mod_id, bypass_conflicts=False):
         if not os.path.exists(self.server_config_path): return {"status": "error", "message": "servertest.ini not found"}
@@ -1207,6 +1234,7 @@ class PZModManager:
                             queue_t0.append(prev)
 
         # 5. Kahn's Algorithm com Tier-breaking
+        self.log(f"Starting topological sort for {len(nodes)} nodes.")
         master_priority = {mid: i for i, mid in enumerate(self.master_order)}
         system_priority = PREORDER_MODS
 
@@ -1225,7 +1253,7 @@ class PZModManager:
         while queue:
             # Ordenação Multicamadas baseada no ModLoader
             queue.sort(key=lambda x: (
-                effective_tier[x],               # 1. System/First/Standard/Last
+                effective_tier.get(x, 1),        # 1. System/First/Standard/Last
                 system_priority.get(x, 99),      # 2. Ordem interna do Preorder (ModManager < Server < Options)
                 cat_tier_cache.get(x, 99),       # 3. Ordem de Categoria
                 master_priority.get(x, 999999),  # 4. Histórico
@@ -1243,6 +1271,7 @@ class PZModManager:
         # 6. Detecção de Ciclos
         if len(sorted_list) != len(nodes):
             remaining = [n for n in nodes if n not in sorted_list]
+            self.log(f"WARNING: Cycle detected or nodes missing. Remaining: {len(remaining)}")
             return sorted_list + remaining, {
                 "title": "🔄 Logic Loop Detected",
                 "message": f"There is a logic conflict involving: {', '.join(remaining[:3])}.",
@@ -1459,21 +1488,38 @@ class PZModManager:
             zip_filename = f"HellDrinx_PZ_Backup_{timestamp}.zip"
             zip_path = os.path.join(backup_dest, zip_filename)
             
+            self.log(f"Starting server backup process to: {zip_path}")
+            print(f"DEBUG: Generating backup: {zip_filename}...")
+            
             with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
-                # Add Saves
+                # Add Saves (High Volume)
+                print("DEBUG: Processing 'Saves' folder (thousands of small files)...")
                 for root, dirs, files in os.walk(saves_path):
                     for file in files:
-                        abs_p = os.path.join(root, file)
-                        rel_p = os.path.relpath(abs_p, zomboid_path)
-                        zipf.write(abs_p, rel_p)
-                
+                        try:
+                            abs_p = os.path.join(root, file)
+                            rel_p = os.path.relpath(abs_p, zomboid_path)
+                            zipf.write(abs_p, rel_p)
+                        except PermissionError:
+                            self.log(f"Skipping file in use: {file}")
+                            print(f"DEBUG: Skipping file in use: {file}")
+                            continue
+
                 # Add Server
+                print("DEBUG: Processing 'Server' configurations...")
                 for root, dirs, files in os.walk(server_path):
                     for file in files:
-                        abs_p = os.path.join(root, file)
-                        rel_p = os.path.relpath(abs_p, zomboid_path)
-                        zipf.write(abs_p, rel_p)
+                        try:
+                            abs_p = os.path.join(root, file)
+                            rel_p = os.path.relpath(abs_p, zomboid_path)
+                            zipf.write(abs_p, rel_p)
+                        except PermissionError:
+                            self.log(f"Skipping config file in use: {file}")
+                            continue
             
+            self.log(f"Backup created successfully: {zip_filename}")
+            print(f"DEBUG: Backup completed successfully!")
             return {"status": "success", "message": f"Backup created: {zip_filename}", "path": zip_path}
         except Exception as e:
+            self.log(f"CRITICAL ERROR in backup: {str(e)}")
             return {"status": "error", "message": str(e)}

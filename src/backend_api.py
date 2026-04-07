@@ -110,6 +110,15 @@ async def sync_mods():
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.post("/api/enhance")
+async def enhance_mods():
+    try:
+        # Run heavy logic in thread to avoid blocking the API
+        result = await asyncio.to_thread(manager.enhance_servertest_ini)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.post("/api/activate-mod")
 async def activate_mod(action: ModAction):
     result = manager.activate_mod(action.mod_id, action.bypass_conflicts)
@@ -254,10 +263,16 @@ async def get_profiles_path(is_community: bool = False):
 # --- BACKUP ---
 @app.post("/api/backup")
 async def create_backup(action: BackupAction):
-    return manager.create_server_backup(action.zomboid_path, action.backup_dest)
+    # Offload heavy zip operation to a separate thread to keep API responsive
+    return await asyncio.to_thread(manager.create_server_backup, action.zomboid_path, action.backup_dest)
 
 def start_server():
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    is_dev = os.environ.get('NODE_ENV') == 'development'
+    if is_dev:
+        # In development, we use string import to enable reload logic
+        uvicorn.run("src.backend_api:app", host="0.0.0.0", port=8000, reload=True)
+    else:
+        uvicorn.run(app, host="0.0.0.0", port=8000)
 
 if __name__ == "__main__":
     start_server()
