@@ -26,7 +26,9 @@ import {
   Copy,
   FileText,
   UploadCloud,
-  Paintbrush
+  Paintbrush,
+  CheckCircle2,
+  Circle
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import bgCats from './assets/helldrinx_bg_pure.png';
@@ -698,6 +700,19 @@ const App: React.FC = () => {
     // Heurística 2: O ID mais curto (geralmente o nome base)
     return [...group].sort((a, b) => a.id.length - b.id.length)[0].id;
   };
+
+  const workshopStats = useMemo(() => {
+    const workshopGroups = groupModsByWorkshop(mods);
+    const workshopIds = Object.keys(workshopGroups);
+    const activatedCount = workshopIds.filter(wid => 
+      workshopGroups[wid].some(mod => serverMods.includes(mod.id))
+    ).length;
+    return {
+      total: workshopIds.length,
+      activated: activatedCount,
+      disabled: workshopIds.length - activatedCount
+    };
+  }, [mods, serverMods]);
 
   return (
     <div className="app-container">
@@ -1465,15 +1480,39 @@ const App: React.FC = () => {
                 </div>
 
                 <div style={{ marginTop: '8px' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: '8px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                      <label style={{ display: 'block', margin: 0, fontSize: '10px', color: '#64748b', fontWeight: 'bold', textTransform: 'uppercase' }}>Advanced Maintenance</label>
+                      <label style={{ display: 'block', margin: 0, fontSize: '10px', color: '#64748b', fontWeight: 'bold', textTransform: 'uppercase' }}>Advanced Sorting</label>
                     </div>
+                    <button
+                      onClick={async () => {
+                        await fetchRules();
+                        setSettingsOpen(false);
+                        setEnhanceModalOpen(true);
+                      }}
+                      disabled={isEnhancing}
+                      style={{ 
+                        background: 'rgba(217, 119, 6, 0.1)', 
+                        border: '1px solid rgba(217, 119, 6, 0.3)', 
+                        color: '#d97706', 
+                        borderRadius: '8px', 
+                        fontSize: '10px', 
+                        padding: '8px 16px', 
+                        cursor: 'pointer', 
+                        fontWeight: 'bold',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '8px'
+                      }}
+                    >
+                      <Zap size={14} />
+                      SORTING RULES CONFIGURATION
+                    </button>
                   </div>
-                  <div style={{ padding: '16px', background: 'rgba(59, 130, 246, 0.05)', borderRadius: '16px', border: '1px solid rgba(59, 130, 246, 0.1)', display: 'flex', gap: '12px', alignItems: 'center' }}>
-                    <Zap size={18} style={{ color: '#60a5fa' }} />
-                    <p style={{ fontSize: '11px', color: '#94a3b8', margin: 0 }}>
-                      The <strong>Sorting Rule Editor</strong> has been moved to the main dashboard under the <strong>Enhance Mods</strong> button for better workflow access.
+                  <div style={{ padding: '16px', background: 'rgba(217, 119, 6, 0.05)', borderRadius: '16px', border: '1px solid rgba(217, 119, 6, 0.1)', display: 'flex', gap: '12px', alignItems: 'center' }}>
+                    <Info size={18} style={{ color: '#d97706', opacity: 0.6 }} />
+                    <p style={{ fontSize: '11px', color: '#64748b', margin: 0 }}>
+                      Manually override the automatic sorting logic. Use with caution for complex load orders.
                     </p>
                   </div>
                 </div>
@@ -1555,37 +1594,20 @@ const App: React.FC = () => {
             {syncing ? 'SCANNING...' : 'Manual Sync'}
           </motion.button>
 
-          <motion.button
-            whileHover={{ scale: 1.05, boxShadow: '0 0 20px rgba(217, 119, 6, 0.3)' }}
-            whileTap={{ scale: 0.95 }}
-            onClick={async () => {
-              await fetchRules();
-              setEnhanceModalOpen(true);
-            }}
-            disabled={isEnhancing}
-            style={{
-              fontSize: '11px',
-              padding: '6px 20px',
-              background: 'linear-gradient(135deg, #d97706 0%, #8b2612 100%)',
-              color: 'white',
-              border: 'none',
-              borderRadius: '12px',
-              boxShadow: '0 2px 10px rgba(139, 38, 18, 0.4)',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '8px',
-              fontWeight: 'bold',
-              opacity: isEnhancing ? 0.7 : 1,
-              cursor: isEnhancing ? 'not-allowed' : 'pointer'
-            }}
-          >
-            <Zap size={14} className={isEnhancing ? 'animate-spin' : ''} />
-            {isEnhancing ? 'ENHANCING...' : 'Enhance Mods !'}
-          </motion.button>
         </div>
-        <div style={{ display: 'flex', gap: '16px' }}>
-          <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }} title="Workshop subscriptions count"><Package size={12} /> {new Set(mods.map(m => m.workshop_id)).size} Subscribed</span>
-          <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}><Trash2 size={12} /> {trash.length} Archived</span>
+        <div style={{ display: 'flex', gap: '16px', color: '#64748b', fontSize: '11px', fontWeight: 'bold' }}>
+          <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }} title="Total Workshop items found">
+            <Package size={14} color="#94a3b8" /> 
+            {workshopStats.total} <span style={{ opacity: 0.5, fontWeight: 'normal' }}>SUBSCRIBED</span>
+          </span>
+          <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }} title="Workshop items with at least one mod active">
+            <CheckCircle2 size={14} color="#10b981" /> 
+            {workshopStats.activated} <span style={{ color: '#10b981', opacity: 0.8 }}>ACTIVATED</span>
+          </span>
+          <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }} title="Workshop items with no mods active">
+            <XCircle size={14} color="#64748b" /> 
+            <span style={{ color: '#64748b' }}>{workshopStats.disabled}</span> <span style={{ color: '#64748b', opacity: 0.5, fontWeight: 'normal' }}>DISABLED</span>
+          </span>
         </div>
       </footer>
 
@@ -2059,12 +2081,9 @@ const App: React.FC = () => {
             >
               <div className="premium-modal-header" style={{ padding: '24px 30px', background: 'linear-gradient(to bottom, rgba(217, 119, 6, 0.05), transparent)', borderBottom: '1px solid rgba(255,255,255,0.05)', flexShrink: 0, position: 'relative' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
-                  <div style={{ background: 'rgba(217, 119, 6, 0.1)', color: '#f59e0b', padding: '12px', borderRadius: '14px' }}>
-                    <Zap size={28} />
-                  </div>
                   <div>
-                    <h2 className="premium-modal-title" style={{ fontSize: '24px' }}>Enhance Mods Engine</h2>
-                    <p className="premium-modal-subtitle">Intelligent Sorting & Conflict Resolution</p>
+                    <h2 className="premium-modal-title" style={{ fontSize: '24px' }}>Sorting Rules Configuration</h2>
+                    <p className="premium-modal-subtitle">Advanced Custom Ordering & Dependencies</p>
                   </div>
                 </div>
 
@@ -2140,9 +2159,21 @@ const App: React.FC = () => {
                         showNotification("Rules saved successfully", "success");
                       }}
                       className="glass-btn"
-                      style={{ padding: '10px 30px', borderColor: 'rgba(59, 130, 246, 0.4)', color: '#60a5fa', fontSize: '11px', fontWeight: 'bold', borderRadius: '12px', background: 'rgba(59, 130, 246, 0.05)' }}
-                    >
-                      <Save size={14} style={{ marginRight: '8px' }} />
+                        style={{ 
+                          padding: '10px 30px', 
+                          borderColor: 'rgba(59, 130, 246, 0.4)', 
+                          color: '#60a5fa', 
+                          fontSize: '11px', 
+                          fontWeight: 'bold', 
+                          borderRadius: '12px', 
+                          background: 'rgba(59, 130, 246, 0.05)',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          gap: '8px'
+                        }}
+                      >
+                        <Save size={14} />
                       SAVE RULES ONLY
                     </button>
                   </div>
@@ -2178,12 +2209,16 @@ const App: React.FC = () => {
                       handleEnhance();
                     }}
                     className="premium-btn-action premium-btn-primary"
-                    style={{
-                      width: '100%', maxWidth: '400px', padding: '18px',
-                      background: 'linear-gradient(135deg, #d97706 0%, #8b2612 100%)',
-                      boxShadow: '0 10px 40px rgba(139, 38, 18, 0.3)',
-                      fontSize: '14px'
-                    }}
+                      style={{
+                        width: '100%', maxWidth: '400px', padding: '18px',
+                        background: 'linear-gradient(135deg, #d97706 0%, #8b2612 100%)',
+                        boxShadow: '0 10px 40px rgba(139, 38, 18, 0.3)',
+                        fontSize: '14px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: '12px'
+                      }}
                     disabled={isEnhancing}
                   >
                     <Zap size={22} className={isEnhancing ? 'animate-spin' : ''} />
