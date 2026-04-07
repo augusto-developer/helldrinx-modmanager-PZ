@@ -25,7 +25,8 @@ import {
   Play,
   Copy,
   FileText,
-  UploadCloud
+  UploadCloud,
+  Paintbrush
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import bgCats from './assets/helldrinx_bg_pure.png';
@@ -53,6 +54,20 @@ interface Notification {
   type: 'success' | 'info' | 'warning';
 }
 
+interface MinimalistToast {
+  id: string;
+  modName?: string;
+  action?: string;
+  subText: string;
+  type: 'success' | 'info' | 'warning';
+  linkedToast?: {
+    modName?: string;
+    action?: string;
+    subText: string;
+    type: 'success' | 'info' | 'warning';
+  };
+}
+
 const App: React.FC = () => {
   const [mods, setMods] = useState<Mod[]>([]);
   const [serverMods, setServerMods] = useState<string[]>([]);
@@ -73,6 +88,15 @@ const App: React.FC = () => {
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
   const [rulesText, setRulesText] = useState('');
   const [savingRules, setSavingRules] = useState(false);
+  const [toasts, setToasts] = useState<MinimalistToast[]>([]);
+
+  const addToast = (modName: string | undefined, action: string | undefined, subText: string, type: 'success' | 'info' | 'warning' = 'info', linked?: MinimalistToast['linkedToast']) => {
+    const id = Math.random().toString(36).substr(2, 9);
+    setToasts(prev => [...prev, { id, modName, action, subText, type, linkedToast: linked }]);
+    setTimeout(() => {
+      setToasts(prev => prev.filter(t => t.id !== id));
+    }, 7000);
+  };
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [highlightedMod, setHighlightedMod] = useState<string | null>(null);
   const [activeSidebarTab, setActiveSidebarTab] = useState<'conflict' | 'missing'>('conflict');
@@ -376,7 +400,7 @@ const App: React.FC = () => {
 
     setBackupLoading(true);
     showNotification("Generating backup... This may take a while depending on your Saves folder size.", "info");
-    
+
     try {
       const resp = await fetch(`${API_BASE}/api/backup`, {
         method: 'POST',
@@ -473,9 +497,29 @@ const App: React.FC = () => {
 
       if (resp.ok) {
         setModalOpen(false); // Close if successful bypass
+
+        // --- Minimalist Toasts for Mod Updates ---
+        const iniName = settings.server_config_path.split(/[\\/]/).pop() || 'servertest.ini';
+
+        // Cleanup Info to be Bundled
+        let linked: MinimalistToast['linkedToast'];
         if (data.cleaned_up && data.cleaned_up.length > 0) {
-          showNotification(`${data.cleaned_up.length} unnecessary dependencies were removed.`, 'info');
+          linked = {
+            subText: `${data.cleaned_up.length} UNNECESSARY DEPENDENCIES REMOVED!`,
+            type: 'warning' as const
+          };
         }
+
+        if (endpoint === 'activate-mod') {
+          addToast(payload.name || 'Mod', 'added,', `${iniName} UPDATED!`, 'success', linked);
+        } else if (endpoint === 'delete-specific') {
+          addToast(payload.name || 'Mod', 'removed,', `${iniName} UPDATED!`, 'info', linked);
+        } else if (linked) {
+          // If standalone cleanup happened without a specific mod move toast
+          addToast(linked.modName, linked.action, linked.subText, linked.type);
+        }
+        // -----------------------------------------
+
         await fetchMods();
       }
     } catch (err) {
@@ -516,7 +560,8 @@ const App: React.FC = () => {
       if (data.status === 'error') {
         showNotification(data.message, 'warning');
       } else {
-        showNotification(data.message || 'Bulk action completed', 'success');
+        const iniName = settings.server_config_path.split(/[\\/]/).pop() || 'servertest.ini';
+        addToast("BULK ACTION", "COMPLETED,", `${selectedIds.length} MODS PROCESSED | ${iniName} UPDATED!`, 'success');
         setSelectedIds([]);
       }
       await fetchMods();
@@ -1301,7 +1346,7 @@ const App: React.FC = () => {
                                   <button
                                     className="btn"
                                     style={{ padding: '8px 16px', borderRadius: '8px', display: 'flex', alignItems: 'center', gap: '8px', background: 'linear-gradient(135deg, #0891b2 0%, #059669 100%)', color: 'white', border: 'none', boxShadow: '0 0 15px rgba(5, 150, 105, 0.3)' }}
-                                    onClick={() => handleAction('activate-mod', { mod_id: mod.id, workshop_id: mod.workshop_id })}
+                                    onClick={() => handleAction('activate-mod', { mod_id: mod.id, workshop_id: mod.workshop_id, name: mod.name })}
                                   >
                                     <Package size={16} />
                                     <span style={{ fontSize: '12px', fontWeight: 'bold' }}>ACTIVATE</span>
@@ -2454,6 +2499,128 @@ const App: React.FC = () => {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Minimalist Toast Container */}
+      <div style={{
+        position: 'fixed',
+        bottom: '24px',
+        left: '24px',
+        zIndex: 10000,
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '8px',
+        pointerEvents: 'none'
+      }}>
+        <AnimatePresence>
+          {toasts.map(toast => (
+            <motion.div
+              key={toast.id}
+              initial={{ opacity: 0, x: -40, scale: 0.9 }}
+              animate={{ opacity: 1, x: 0, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.9, transition: { duration: 0.2 } }}
+              style={{
+                display: 'flex',
+                flexDirection: 'column',
+                pointerEvents: 'auto'
+              }}
+            >
+              {/* Primary Toast */}
+              <div
+                style={{
+                  background: toast.type === 'warning' ? 'rgba(255, 241, 242, 0.98)' : 'rgba(15, 23, 42, 0.95)',
+                  backdropFilter: 'blur(12px)',
+                  borderLeft: `4px solid ${toast.type === 'success' ? '#10b981' : (toast.type === 'warning' ? '#f43f5e' : '#3b82f6')}`,
+                  padding: '12px 20px',
+                  borderRadius: toast.linkedToast ? '8px 8px 0 0' : '8px',
+                  boxShadow: '0 10px 30px rgba(0,0,0,0.5)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '12px',
+                  minWidth: '280px',
+                  borderBottom: toast.linkedToast ? '1px solid rgba(255,255,255,0.1)' : 'none'
+                }}
+              >
+                <div style={{
+                  background: toast.type === 'success' ? 'rgba(16, 185, 129, 0.1)' : (toast.type === 'warning' ? 'rgba(244, 63, 94, 0.1)' : 'rgba(59, 130, 246, 0.1)'),
+                  color: toast.type === 'warning' ? '#f43f5e' : (toast.type === 'success' ? '#10b981' : '#3b82f6'),
+                  width: '24px',
+                  height: '24px',
+                  borderRadius: '6px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center'
+                }}>
+                  {toast.type === 'success' ? <Plus size={14} /> : (toast.type === 'warning' ? <Paintbrush size={14} /> : <Trash2 size={14} />)}
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                  {(toast.modName || toast.action) && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      {toast.modName && (
+                        <span style={{ fontSize: '13px', color: toast.type === 'warning' ? '#000' : '#fbbf24', fontWeight: '900', letterSpacing: '0.5px' }}>
+                          {toast.modName.toUpperCase()}
+                        </span>
+                      )}
+                      {toast.action && (
+                        <span style={{ fontSize: '12px', color: toast.type === 'warning' ? '#333' : '#fff', fontWeight: '800' }}>
+                          {toast.action}
+                        </span>
+                      )}
+                    </div>
+                  )}
+                  <span style={{ fontSize: '10px', color: toast.type === 'warning' ? '#555' : '#94a3b8', fontWeight: '700', letterSpacing: '0.5px' }}>
+                    {toast.subText}
+                  </span>
+                </div>
+              </div>
+
+              {/* Linked Sub-Toast (Cleanup) */}
+              {toast.linkedToast && (
+                <div
+                  style={{
+                    background: 'rgba(255, 241, 242, 0.98)',
+                    backdropFilter: 'blur(12px)',
+                    borderLeft: '4px solid #f43f5e',
+                    padding: '8px 20px',
+                    borderRadius: '0 0 8px 8px',
+                    boxShadow: '0 10px 40px rgba(0, 0, 0, 0.2)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '12px',
+                    minWidth: '280px',
+                    marginTop: '-1px'
+                  }}
+                >
+                  <div style={{
+                    background: 'rgba(244, 63, 94, 0.1)',
+                    color: '#f43f5e',
+                    width: '18px',
+                    height: '18px',
+                    borderRadius: '4px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center'
+                  }}>
+                    <Paintbrush size={10} />
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column' }}>
+                    {(toast.linkedToast.modName || toast.linkedToast.action) && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                        {toast.linkedToast.modName && (
+                          <span style={{ fontSize: '11px', color: '#000', fontWeight: '900' }}>{toast.linkedToast.modName}</span>
+                        )}
+                        {toast.linkedToast.action && (
+                          <span style={{ fontSize: '10px', color: '#333', fontWeight: '800' }}>{toast.linkedToast.action}</span>
+                        )}
+                      </div>
+                    )}
+                    <span style={{ fontSize: '9px', color: '#555', fontWeight: '700' }}>{toast.linkedToast.subText}</span>
+                  </div>
+                </div>
+              )}
+            </motion.div>
+          ))}
+        </AnimatePresence>
+      </div>
     </div>
   );
 };
