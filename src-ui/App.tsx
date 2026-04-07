@@ -422,13 +422,15 @@ const App: React.FC = () => {
     }
   };
 
-  const syncMods = async () => {
+  const syncMods = async (silent: boolean = false) => {
     setSyncing(true);
     try {
       const res = await fetch(`${API_BASE}/api/sync`, { method: 'POST' });
       const data = await res.json();
       await fetchMods();
-      showNotification("Discovery completed! Mod list is up to date.", "info");
+      if (!silent) {
+        showNotification("Discovery completed! Mod list is up to date.", "info");
+      }
     } catch (err) {
       console.error('Sync failed:', err);
     } finally {
@@ -600,9 +602,9 @@ const App: React.FC = () => {
 
       if (resp.ok && rulesResp.ok) {
         setSettings(newSettings);
-        showNotification('Settings and Rules saved successfully. Resyncing...', 'success');
         setSettingsOpen(false);
-        await syncMods();
+        await syncMods(true); // Silent sync
+        showNotification('Your mods have been successfully loaded and sorted!', 'success');
       }
     } catch (err) {
       console.error('Save settings failed:', err);
@@ -1532,7 +1534,7 @@ const App: React.FC = () => {
           <motion.button
             whileHover={{ scale: 1.05, boxShadow: '0 0 20px rgba(59, 130, 246, 0.2)' }}
             whileTap={{ scale: 0.95 }}
-            onClick={syncMods}
+            onClick={() => syncMods()}
             disabled={syncing}
             style={{
               fontSize: '11px',
