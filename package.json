@@ -1,6 +1,6 @@
 {
   "name": "mods-manager-node",
-  "version": "2.1.1",
+  "version": "2.1.3",
   "description": "HellDrinx Project Zomboid Server Mod Manager",
   "author": "HellDrinx",
   "main": "electron/main.js",

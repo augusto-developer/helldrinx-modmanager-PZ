@@ -80,6 +80,9 @@ class PZModManager:
         self.trash_metadata = {}
         self.sorting_rules = {}
         self.ignored_fingerprints = []
+        self.last_selected_profile = None
+        self.last_community_selected = False
+        self.last_profile_mods = []
 
         # Perform migration before loading anything
         self._migrate_old_data()
@@ -120,15 +123,21 @@ class PZModManager:
                     self.workshop_path = data.get("workshop_path", DEFAULT_WORKSHOP)
                     self.server_config_path = data.get("server_config_path", DEFAULT_SERVER_INI)
                     self.ignored_fingerprints = data.get("ignored_fingerprints", [])
+                    self.last_selected_profile = data.get("last_selected_profile")
+                    self.last_community_selected = data.get("last_community_selected", False)
+                    self.last_profile_mods = data.get("last_profile_mods", [])
             except: pass
 
-    def save_settings(self, workshop_path, server_config_path):
-        self.workshop_path = workshop_path
-        self.server_config_path = server_config_path
+    def save_settings(self, workshop_path=None, server_config_path=None):
+        if workshop_path: self.workshop_path = workshop_path
+        if server_config_path: self.server_config_path = server_config_path
         data = {
             "workshop_path": self.workshop_path,
             "server_config_path": self.server_config_path,
-            "ignored_fingerprints": self.ignored_fingerprints
+            "ignored_fingerprints": self.ignored_fingerprints,
+            "last_selected_profile": self.last_selected_profile,
+            "last_community_selected": self.last_community_selected,
+            "last_profile_mods": self.last_profile_mods
         }
         os.makedirs(os.path.dirname(SETTINGS_FILE), exist_ok=True)
         with open(SETTINGS_FILE, "w") as f:
@@ -1383,6 +1392,13 @@ class PZModManager:
         try:
             dest = os.path.join(PROFILES_DIR, f"{name}.ini")
             shutil.copy2(self.server_config_path, dest)
+            
+            # Persist last selected
+            self.last_selected_profile = name
+            self.last_community_selected = False
+            self.last_profile_mods = list(self.server_mods)
+            self.save_settings()
+            
             return {"status": "success", "message": f"Profile '{name}' saved successfully"}
         except Exception as e:
             return {"status": "error", "message": str(e)}
@@ -1431,6 +1447,13 @@ class PZModManager:
                     f.write(new_content)
 
             self.load_server_config()
+            
+            # Persist last selected after successful load
+            self.last_selected_profile = name
+            self.last_community_selected = is_community
+            self.last_profile_mods = list(self.server_mods) # server_mods updated by load_server_config
+            self.save_settings()
+            
             return {"status": "success", "message": f"Preset '{name}' ({method}) loaded successfully"}
         except Exception as e:
             return {"status": "error", "message": str(e)}
@@ -1442,6 +1465,12 @@ class PZModManager:
         if os.path.exists(path):
             try:
                 os.remove(path)
+                # Clear last selected if it was this one
+                if self.last_selected_profile == name and self.last_community_selected == is_community:
+                    self.last_selected_profile = None
+                    self.last_community_selected = False
+                    self.last_profile_mods = []
+                    self.save_settings()
                 return {"status": "success"}
             except Exception as e:
                 return {"status": "error", "message": str(e)}

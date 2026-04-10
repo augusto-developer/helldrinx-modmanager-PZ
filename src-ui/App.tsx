@@ -34,6 +34,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import bgCats from './assets/helldrinx_bg_pure.png';
 
 const API_BASE = 'http://localhost:8000';
+const APP_VERSION = '2.1.3';
 
 interface Mod {
   id: string;
@@ -106,6 +107,45 @@ const App: React.FC = () => {
   const [profilesOpen, setProfilesOpen] = useState(false);
   const [selectedProfile, setSelectedProfile] = useState<{ name: string, isCommunity: boolean } | null>(null);
   const [lastLoadedMods, setLastLoadedMods] = useState<string[]>([]);
+
+  const [updateAvailable, setUpdateAvailable] = useState<string | null>(null);
+
+  useEffect(() => {
+    const checkUpdates = async () => {
+      try {
+        const res = await fetch('https://api.github.com/repos/augusto-developer/helldrinx-modmanager-PZ/releases/latest');
+        if (res.ok) {
+          const data = await res.json();
+          const latestTag = data.tag_name.replace('v', '');
+          
+          // Proper version comparison (Simple semver)
+          const latestParts = latestTag.split('.').map(Number);
+          const currentParts = APP_VERSION.split('.').map(Number);
+          
+          let isNewer = false;
+          for (let i = 0; i < Math.max(latestParts.length, currentParts.length); i++) {
+            const l = latestParts[i] || 0;
+            const c = currentParts[i] || 0;
+            if (l > c) { isNewer = true; break; }
+            if (l < c) { isNewer = false; break; }
+          }
+
+          if (isNewer) {
+            setUpdateAvailable(data.tag_name);
+            addToast(
+              "Update Found!",
+              `v${latestTag}`,
+              "A new version of HellDrinx is available. Click 'NEW UPDATE' in the footer to download.",
+              'warning'
+            );
+          }
+        }
+      } catch (err) {
+        console.error('Update check failed:', err);
+      }
+    };
+    checkUpdates();
+  }, []);
 
   const isProfileDirty = useMemo(() => {
     if (!selectedProfile || lastLoadedMods.length === 0) return false;
@@ -207,6 +247,15 @@ const App: React.FC = () => {
       const resp = await fetch(`${API_BASE}/api/settings`);
       const data = await resp.json();
       setSettings(data);
+      if (data.last_selected_profile) {
+        setSelectedProfile({ 
+          name: data.last_selected_profile, 
+          isCommunity: data.last_community_selected || false 
+        });
+        if (data.last_profile_mods) {
+          setLastLoadedMods(data.last_profile_mods);
+        }
+      }
     } catch (err) {
       console.error('Error fetching settings:', err);
     }
@@ -1567,6 +1616,32 @@ const App: React.FC = () => {
       <footer style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', color: '#475569', fontSize: '0.70rem', padding: '8px 16px', background: 'rgba(15, 23, 42, 0.5)', borderTop: '1px solid rgba(255,255,255,0.05)' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
           <span>developed by: augusto-developer (Lopez)</span>
+          <span style={{ opacity: 0.3 }}>|</span>
+          <span style={{ opacity: 0.5 }}>v{APP_VERSION}</span>
+          {updateAvailable && (
+            <motion.button
+              initial={{ scale: 0, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+              onClick={() => (window as any).require('electron').ipcRenderer.invoke('open-external-url', 'https://github.com/augusto-developer/helldrinx-modmanager-PZ/releases')}
+              style={{
+                background: 'rgba(239, 68, 68, 0.1)',
+                color: '#ef4444',
+                border: '1px solid rgba(239, 68, 68, 0.3)',
+                borderRadius: '8px',
+                padding: '4px 10px',
+                fontSize: '9px',
+                fontWeight: 'bold',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px'
+              }}
+            >
+              <Download size={12} /> NEW UPDATE
+            </motion.button>
+          )}
         </div>
 
         <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>

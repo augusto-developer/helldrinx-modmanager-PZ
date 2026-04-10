@@ -12,6 +12,9 @@ node_modules
 
 # Project Local Cache / Logs
 mods_cache.json
+
+# Antigravity
+.agent/
 scanner_debug.log
 *.log
 src/trash/

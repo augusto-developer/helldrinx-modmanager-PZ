@@ -35,6 +35,9 @@ if os.path.exists(TRASH_PATH):
 class SettingsAction(BaseModel):
     workshop_path: str
     server_config_path: str
+    last_selected_profile: Optional[str] = None
+    last_community_selected: Optional[bool] = False
+    last_profile_mods: Optional[List[str]] = []
 
 class ModAction(BaseModel):
     mod_id: str = ""
@@ -176,7 +179,10 @@ async def empty_trash():
 async def get_settings():
     return {
         "workshop_path": manager.workshop_path,
-        "server_config_path": manager.server_config_path
+        "server_config_path": manager.server_config_path,
+        "last_selected_profile": manager.last_selected_profile,
+        "last_community_selected": manager.last_community_selected,
+        "last_profile_mods": manager.last_profile_mods
     }
 
 @app.post("/api/settings")
