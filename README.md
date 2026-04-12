@@ -37,3 +37,10 @@ The assistant analyzes each mod's dependencies and ensures your `servertest.ini`
 
 ## 💎 Credits and Support
 Developed by **augusto-developer** with authorization to use the **HellDrinx** trademark, for the global Project Zomboid community.
+
+
+<div align="center">
+  <img src="https://komarev.com/ghpvc/?username=augusto-dev-helldrinx-pz&label=Visits:&color=blue&style=flat" alt="Contador de Visitas" />
+</div>
+
+
