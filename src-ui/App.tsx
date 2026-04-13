@@ -32,6 +32,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import bgCats from './assets/helldrinx_bg_pure.png';
+import SandboxSettings from './components/SandboxSettings';
 
 const API_BASE = 'http://localhost:8000';
 const APP_VERSION = '2.1.3';
@@ -88,6 +89,7 @@ const App: React.FC = () => {
   const [settingsOpen, setSettingsOpen] = useState(false);
 
   const [settings, setSettings] = useState({ workshop_path: '', server_config_path: '' });
+  const [sandboxOpen, setSandboxOpen] = useState(false);
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
   const [rulesText, setRulesText] = useState('');
   const [savingRules, setSavingRules] = useState(false);
@@ -117,11 +119,11 @@ const App: React.FC = () => {
         if (res.ok) {
           const data = await res.json();
           const latestTag = data.tag_name.replace('v', '');
-          
+
           // Proper version comparison (Simple semver)
           const latestParts = latestTag.split('.').map(Number);
           const currentParts = APP_VERSION.split('.').map(Number);
-          
+
           let isNewer = false;
           for (let i = 0; i < Math.max(latestParts.length, currentParts.length); i++) {
             const l = latestParts[i] || 0;
@@ -248,9 +250,9 @@ const App: React.FC = () => {
       const data = await resp.json();
       setSettings(data);
       if (data.last_selected_profile) {
-        setSelectedProfile({ 
-          name: data.last_selected_profile, 
-          isCommunity: data.last_community_selected || false 
+        setSelectedProfile({
+          name: data.last_selected_profile,
+          isCommunity: data.last_community_selected || false
         });
         if (data.last_profile_mods) {
           setLastLoadedMods(data.last_profile_mods);
@@ -753,7 +755,7 @@ const App: React.FC = () => {
   const workshopStats = useMemo(() => {
     const workshopGroups = groupModsByWorkshop(mods);
     const workshopIds = Object.keys(workshopGroups);
-    const activatedCount = workshopIds.filter(wid => 
+    const activatedCount = workshopIds.filter(wid =>
       workshopGroups[wid].some(mod => serverMods.includes(mod.id))
     ).length;
     return {
@@ -1024,6 +1026,20 @@ const App: React.FC = () => {
         >
           <History size={14} />
           SERVER BACKUP
+        </motion.button>
+
+        <motion.button
+          whileHover={{ scale: 1.02 }}
+          whileTap={{ scale: 0.98 }}
+          onClick={() => setSandboxOpen(true)}
+          className="glass-btn"
+          style={{
+            fontSize: '11px', padding: '10px 16px', background: 'rgba(5, 150, 105, 0.1)',
+            borderColor: 'rgba(5, 150, 105, 0.3)', color: '#10b981'
+          }}
+        >
+          <Monitor size={14} />
+          SANDBOX SETTINGS
         </motion.button>
 
 
@@ -1540,14 +1556,14 @@ const App: React.FC = () => {
                         setEnhanceModalOpen(true);
                       }}
                       disabled={isEnhancing}
-                      style={{ 
-                        background: 'rgba(217, 119, 6, 0.1)', 
-                        border: '1px solid rgba(217, 119, 6, 0.3)', 
-                        color: '#d97706', 
-                        borderRadius: '8px', 
-                        fontSize: '10px', 
-                        padding: '8px 16px', 
-                        cursor: 'pointer', 
+                      style={{
+                        background: 'rgba(217, 119, 6, 0.1)',
+                        border: '1px solid rgba(217, 119, 6, 0.3)',
+                        color: '#d97706',
+                        borderRadius: '8px',
+                        fontSize: '10px',
+                        padding: '8px 16px',
+                        cursor: 'pointer',
                         fontWeight: 'bold',
                         display: 'flex',
                         alignItems: 'center',
@@ -1672,15 +1688,15 @@ const App: React.FC = () => {
         </div>
         <div style={{ display: 'flex', gap: '16px', color: '#64748b', fontSize: '11px', fontWeight: 'bold' }}>
           <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }} title="Total Workshop items found">
-            <Package size={14} color="#94a3b8" /> 
+            <Package size={14} color="#94a3b8" />
             {workshopStats.total} <span style={{ opacity: 0.5, fontWeight: 'normal' }}>SUBSCRIBED</span>
           </span>
           <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }} title="Workshop items with at least one mod active">
-            <CheckCircle2 size={14} color="#10b981" /> 
+            <CheckCircle2 size={14} color="#10b981" />
             {workshopStats.activated} <span style={{ color: '#10b981', opacity: 0.8 }}>ACTIVATED</span>
           </span>
           <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }} title="Workshop items with no mods active">
-            <XCircle size={14} color="#64748b" /> 
+            <XCircle size={14} color="#64748b" />
             <span style={{ color: '#64748b' }}>{workshopStats.disabled}</span> <span style={{ color: '#64748b', opacity: 0.5, fontWeight: 'normal' }}>DISABLED</span>
           </span>
         </div>
@@ -2234,21 +2250,21 @@ const App: React.FC = () => {
                         showNotification("Rules saved successfully", "success");
                       }}
                       className="glass-btn"
-                        style={{ 
-                          padding: '10px 30px', 
-                          borderColor: 'rgba(59, 130, 246, 0.4)', 
-                          color: '#60a5fa', 
-                          fontSize: '11px', 
-                          fontWeight: 'bold', 
-                          borderRadius: '12px', 
-                          background: 'rgba(59, 130, 246, 0.05)',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          gap: '8px'
-                        }}
-                      >
-                        <Save size={14} />
+                      style={{
+                        padding: '10px 30px',
+                        borderColor: 'rgba(59, 130, 246, 0.4)',
+                        color: '#60a5fa',
+                        fontSize: '11px',
+                        fontWeight: 'bold',
+                        borderRadius: '12px',
+                        background: 'rgba(59, 130, 246, 0.05)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: '8px'
+                      }}
+                    >
+                      <Save size={14} />
                       SAVE RULES ONLY
                     </button>
                   </div>
@@ -2284,16 +2300,16 @@ const App: React.FC = () => {
                       handleEnhance();
                     }}
                     className="premium-btn-action premium-btn-primary"
-                      style={{
-                        width: '100%', maxWidth: '400px', padding: '18px',
-                        background: 'linear-gradient(135deg, #d97706 0%, #8b2612 100%)',
-                        boxShadow: '0 10px 40px rgba(139, 38, 18, 0.3)',
-                        fontSize: '14px',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        gap: '12px'
-                      }}
+                    style={{
+                      width: '100%', maxWidth: '400px', padding: '18px',
+                      background: 'linear-gradient(135deg, #d97706 0%, #8b2612 100%)',
+                      boxShadow: '0 10px 40px rgba(139, 38, 18, 0.3)',
+                      fontSize: '14px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '12px'
+                    }}
                     disabled={isEnhancing}
                   >
                     <Zap size={22} className={isEnhancing ? 'animate-spin' : ''} />
@@ -2733,6 +2749,12 @@ const App: React.FC = () => {
           ))}
         </AnimatePresence>
       </div>
+      <SandboxSettings 
+        isOpen={sandboxOpen} 
+        onClose={() => setSandboxOpen(false)} 
+        apiBase={API_BASE} 
+        showNotification={showNotification}
+      />
     </div>
   );
 };

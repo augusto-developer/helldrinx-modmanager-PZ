@@ -3,19 +3,63 @@ import os
 import uvicorn
 import asyncio
 import urllib.parse
+from contextlib import asynccontextmanager
 
 # Add project root to sys.path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from typing import List, Optional
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Body
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from src.logic.manager import PZModManager, TRASH_PATH, SORTING_RULES_FILE
+from src.logic.sandbox_manager import SandboxManager
+from src.logic.ini_manager import IniManager
 
-app = FastAPI(title="HellDrinx - Tool (ModManager)")
+import signal
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Manages the startup and shutdown lifecycles of the application."""
+    # Start the watchdog to prevent zombie processes
+    asyncio.create_task(parent_watchdog())
+    yield
+    # Any cleanup logic would go here
+
+app = FastAPI(title="HellDrinx - Tool (ModManager)", lifespan=lifespan)
 manager = PZModManager()
+
+# --- ZOMBIE PROTECTION ---
+async def parent_watchdog():
+    """Asynchronous task that shuts down the backend if the parent process (Electron) dies."""
+    # 1. Disable in development to avoid annoying shutdowns
+    if os.environ.get('NODE_ENV') == 'development':
+        print("Watchdog: Disabled (Development Mode)")
+        return
+        
+    parent_pid = os.getppid()
+    
+    # Don't start watchdog if we can't get a valid parent PID (e.g. detached)
+    if parent_pid <= 1:
+        print(f"Watchdog skipped. Parent PID is {parent_pid} (detached or system).")
+        return
+
+    print(f"Watchdog started. Monitoring parent PID: {parent_pid}")
+    
+    # Wait longer at startup to allow Electron to stabilize and potentially spawn/respawn
+    await asyncio.sleep(20)
+    
+    while True:
+        try:
+            # os.kill(pid, 0) checks if process exists
+            os.kill(parent_pid, 0)
+        except (OSError, ProcessLookupError):
+            print(f"Parent process {parent_pid} lost. Shutting down backend...")
+            os._exit(0)
+        await asyncio.sleep(5) # Check every 5 seconds
+
+# --- END ZOMBIE PROTECTION ---
 
 # CORS configuration to allow React (Node) to access the API
 app.add_middleware(
@@ -61,6 +105,9 @@ class ProfileAction(BaseModel):
 class BackupAction(BaseModel):
     zomboid_path: str
     backup_dest: str
+
+class SandboxVarsAction(BaseModel):
+    vars: dict
 
 @app.get("/api/mods")
 async def get_mods():
@@ -272,11 +319,162 @@ async def create_backup(action: BackupAction):
     # Offload heavy zip operation to a separate thread to keep API responsive
     return await asyncio.to_thread(manager.create_server_backup, action.zomboid_path, action.backup_dest)
 
+# --- SANDBOX VARS ---
+@app.get("/api/sandbox-vars")
+async def get_sandbox_vars():
+    # Construct SandboxVars.lua path relative to servertest.ini
+    ini_path = manager.server_config_path
+    if not ini_path:
+        raise HTTPException(status_code=400, detail="Server config path not set")
+    
+    # Example: C:\Users\Lopez\Zomboid\Server\servertest.ini -> servertest_SandboxVars.lua
+    base_name = os.path.basename(ini_path).replace(".ini", "")
+    lua_path = os.path.join(os.path.dirname(ini_path), f"{base_name}_SandboxVars.lua")
+    
+    sm = SandboxManager(lua_path)
+    return sm.get_sandbox_vars()
+
+@app.get("/api/ini-vars")
+async def get_ini_vars():
+    """Returns variables from servertest.ini (INI Tab)."""
+    ini_mgr = IniManager(manager.server_config_path)
+    return ini_mgr.get_ini_vars()
+
+@app.post("/api/ini-vars")
+async def save_ini_vars(action: SandboxVarsAction):
+    """Saves variables back to servertest.ini (INI Tab)."""
+    ini_mgr = IniManager(manager.server_config_path)
+    return ini_mgr.save_ini_vars(action.vars)
+
+@app.get("/api/workshop-playlist")
+async def get_workshop_playlist():
+    """Returns the ordered list of mods and workshop IDs from servertest.ini."""
+    ini_mgr = IniManager(manager.server_config_path)
+    vars_data = ini_mgr.get_ini_vars().get("vars", {})
+    
+    mods_str = vars_data.get("Mods", "")
+    ws_str = vars_data.get("WorkshopItems", "")
+    
+    # Split and clean
+    mods_raw = [m.strip() for m in mods_str.split(";") if m.strip()]
+    ws_raw = [w.strip() for w in ws_str.split(";") if w.strip()]
+    
+    # Unique Mods in order (as per user instruction: Id aparece apenas uma vez)
+    mods_unique = []
+    seen_mods = set()
+    for m in mods_raw:
+        if m not in seen_mods:
+            mods_unique.append(m)
+            seen_mods.add(m)
+
+    # Pre-load mod data for name and workshop mapping
+    mod_to_ws = {}
+    mod_to_name = {}
+    for mod in manager.mods_data:
+        mod_to_ws[mod["id"]] = mod["workshop_id"]
+        mod_to_name[mod["id"]] = mod["name"]
+    
+    playlist = []
+    used_ws_ids = set()
+
+    # Build playlist from Mods list (The source of truth)
+    for m_id in mods_unique:
+        w_id = mod_to_ws.get(m_id, "")
+        
+        # If we can't find the WS ID in scan, check if it was in the original file
+        # This is a bit advanced, but let's try to find it if there was a 1:1 match in the file
+        if not w_id and len(mods_raw) == len(ws_raw):
+            try:
+                idx = mods_raw.index(m_id)
+                w_id = ws_raw[idx]
+            except: pass
+
+        if w_id:
+            used_ws_ids.add(w_id)
+
+        playlist.append({
+            "workshopId": w_id,
+            "modId": m_id,
+            "name": mod_to_name.get(m_id, m_id)
+        })
+
+    # Add "Orphan" Workshop IDs (those in WS list but not mapping to any mod in Mods list)
+    # This prevents accidental deletion of map mods or assets
+    for w_id in ws_raw:
+        if w_id not in used_ws_ids:
+            playlist.append({
+                "workshopId": w_id,
+                "modId": "",
+                "name": f"Workshop Asset: {w_id}"
+            })
+            used_ws_ids.add(w_id)
+        
+    return playlist
+
+@app.post("/api/workshop-playlist")
+async def save_workshop_playlist(playlist: List[dict]):
+    """Saves the reordered playlist back to servertest.ini."""
+    # 1. New Mods string (unique mod ids in order)
+    mod_ids = []
+    seen_mods = set()
+    for p in playlist:
+        m = p.get("modId")
+        if m and m not in seen_mods:
+            mod_ids.append(m)
+            seen_mods.add(m)
+    new_mods = ";".join(mod_ids)
+
+    # 2. New WorkshopItems string (unique workshop ids in order of first appearance)
+    ws_ids = []
+    seen_ws = set()
+    for p in playlist:
+        w = p.get("workshopId")
+        if w and w not in seen_ws:
+            ws_ids.append(w)
+            seen_ws.add(w)
+    new_ws = ";".join(ws_ids)
+    
+    ini_mgr = IniManager(manager.server_config_path)
+    return ini_mgr.save_ini_vars({
+        "Mods": new_mods,
+        "WorkshopItems": new_ws
+    })
+
+@app.get("/api/map-list")
+async def get_map_list():
+    """Returns the ordered list of maps from servertest.ini."""
+    ini_mgr = IniManager(manager.server_config_path)
+    vars_data = ini_mgr.get_ini_vars().get("vars", {})
+    map_str = vars_data.get("Map", "")
+    return [m.strip() for m in map_str.split(";") if m.strip()]
+
+@app.post("/api/map-list")
+async def save_map_list(maps: List[str] = Body(...)):
+    """Saves the reordred map list back to servertest.ini."""
+    print(f"DEBUG: Saving Map list: {maps}")
+    new_map_str = ";".join(maps)
+    ini_mgr = IniManager(manager.server_config_path)
+    result = ini_mgr.save_ini_vars({"Map": new_map_str})
+    print(f"DEBUG: Save result: {result}")
+    return result
+
+@app.post("/api/sandbox-vars")
+async def update_sandbox_vars(action: SandboxVarsAction):
+    ini_path = manager.server_config_path
+    base_name = os.path.basename(ini_path).replace(".ini", "")
+    lua_path = os.path.join(os.path.dirname(ini_path), f"{base_name}_SandboxVars.lua")
+    
+    sm = SandboxManager(lua_path)
+    if sm.update_vars(action.vars):
+        return {"status": "success"}
+    raise HTTPException(status_code=500, detail="Failed to update SandboxVars.lua")
+
 def start_server():
     is_dev = os.environ.get('NODE_ENV') == 'development'
     if is_dev:
         # In development, we use string import to enable reload logic
-        uvicorn.run("src.backend_api:app", host="0.0.0.0", port=8000, reload=True)
+        # Set log_level to warning to reduce noise (avoid "INFO" logs being labeled as Errors)
+        uvicorn.run("src.backend_api:app", host="0.0.0.0", port=8000, reload=True, log_level="warning")
     else:
         uvicorn.run(app, host="0.0.0.0", port=8000)
 

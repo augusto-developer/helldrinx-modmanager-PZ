@@ -157,3 +157,14 @@ app.on('will-quit', () => {
 app.on('before-quit', () => {
   killPythonProcess();
 });
+
+// Capture Ctrl+C or terminal termination signals
+process.on('SIGINT', () => {
+  killPythonProcess();
+  app.quit();
+});
+
+process.on('SIGTERM', () => {
+  killPythonProcess();
+  app.quit();
+});
