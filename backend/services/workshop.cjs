@@ -28,7 +28,7 @@ class WorkshopService {
       "modmanagerserver": 2,
       "modoptions": 3
     };
-    this.CRITICAL_DIRS = ['lua', 'scripts', 'maps'];
+    this.CRITICAL_DIRS = ['lua', 'scripts', 'maps', 'clothing', 'animsets', 'ui'];
     this.ignoredFingerprints = [];
   }
 
