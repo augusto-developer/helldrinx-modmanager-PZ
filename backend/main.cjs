@@ -2,6 +2,16 @@ const { app, BrowserWindow, ipcMain, dialog, protocol, net, shell } = require('e
 const path = require('path');
 const fs = require('fs');
 
+// --- EMERGENCY STARTUP LOGGING ---
+const LOG_PATH = path.join(app.getPath('userData'), 'crash-report.txt');
+const logError = (error) => {
+  const timestamp = new Date().toISOString();
+  const logMessage = `[${timestamp}] CRITICAL STARTUP ERROR:\n${error.stack || error}\n\n`;
+  fs.appendFileSync(LOG_PATH, logMessage);
+};
+process.on('uncaughtException', logError);
+process.on('unhandledRejection', logError);
+
 const SETTINGS_PATH = path.join(app.getPath('userData'), 'settings.json');
 const CACHE_PATH = path.join(app.getPath('userData'), 'mod_cache.json');
 
