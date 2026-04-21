@@ -1,7 +1,9 @@
 {
-  "name": "new-version",
+  "name": "helldrinx-mod-manager",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.0.0",
+  "description": "The Ultimate Audit and Management Engine for Project Zomboid Mods",
+  "author": "HellDrinx Team",
   "type": "module",
   "main": "backend/main.cjs",
   "scripts": {
@@ -9,7 +11,41 @@
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "electron:dev": "concurrently --kill-others \"npm run dev\" \"wait-on http://localhost:5173 && cross-env NODE_ENV=development electron .\""
+    "electron:dev": "concurrently --kill-others \"npm run dev\" \"wait-on http://localhost:5173 && cross-env NODE_ENV=development electron .\"",
+    "electron:build": "npm run build && electron-builder"
+  },
+  "build": {
+    "appId": "com.helldrinx.modmanager",
+    "productName": "HellDrinx Mod Manager",
+    "directories": {
+      "output": "dist_electron"
+    },
+    "files": [
+      "dist/**/*",
+      "backend/**/*",
+      "package.json"
+    ],
+    "win": {
+      "icon": "public/assets/icon_helldrinx.ico",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable"
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "HellDrinx Mod Manager"
+    }
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",

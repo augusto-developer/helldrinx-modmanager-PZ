@@ -122,7 +122,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         <div className="flex flex-col gap-4 px-2">
           <NavButton
             label="World"
-            icon="/assets/world_icon.png"
+            icon="assets/world_icon.png"
             isActive={false} // State controlled in MainLayout
             onClick={onOpenWorldConfig}
             disabled={!iniPath}
@@ -132,7 +132,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
           <NavButton
             label="Presets"
-            icon="/assets/presets_icon.png"
+            icon="assets/presets_icon.png"
             isActive={false}
             onClick={onOpenPresets}
             disabled={!iniPath}
@@ -142,7 +142,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
           <NavButton
             label="Backup"
-            icon="/assets/backup_icon.png"
+            icon="assets/backup_icon.png"
             isActive={false}
             onClick={onOpenGlobalBackup}
             disabled={!iniPath}

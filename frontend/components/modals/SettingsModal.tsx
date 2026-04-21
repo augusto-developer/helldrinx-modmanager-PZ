@@ -9,23 +9,17 @@ import { ipcService } from '../../services/ipcService';
   onClose: () => void;
   onSave: (settings: { 
     workshopPath: string, 
-    serverIniPath: string,
-    geminiApiKey: string,
-    aiInstructions: string
+    serverIniPath: string
   }) => void;
   initialSettings: { 
     workshopPath: string, 
-    serverIniPath: string,
-    geminiApiKey?: string,
-    aiInstructions?: string
+    serverIniPath: string
   };
 }
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, onSave, initialSettings }) => {
   const [workshopPath, setWorkshopPath] = useState(initialSettings.workshopPath);
   const [serverIniPath, setServerIniPath] = useState(initialSettings.serverIniPath);
-  const [geminiApiKey, setGeminiApiKey] = useState(initialSettings.geminiApiKey || '');
-  const [aiInstructions, setAiInstructions] = useState(initialSettings.aiInstructions || '');
 
 
   const handleSelectWorkshop = async () => {
@@ -41,9 +35,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, o
   const handleSave = () => {
     onSave({ 
       workshopPath, 
-      serverIniPath,
-      geminiApiKey,
-      aiInstructions
+      serverIniPath
     });
     onClose();
   };
@@ -115,39 +107,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, o
             </div>
           </div>
 
-          <div className="h-px bg-white/5" />
-
-          {/* AI Section */}
-          <div className="space-y-4">
-            <h3 className="text-[10px] font-black text-blue-400 uppercase tracking-widest border-l-2 border-blue-500 pl-3 flex items-center gap-2">
-              Gemini AI Integration
-              <span className="text-[9px] bg-blue-500/10 border border-blue-500/20 px-2 py-0.5 rounded text-blue-500">BETA</span>
-            </h3>
-
-            <div className="space-y-2">
-              <label className="text-[10px] font-black text-zinc-400 uppercase tracking-widest">Google Gemini API Key</label>
-              <input 
-                type="password" 
-                value={geminiApiKey}
-                onChange={(e) => setGeminiApiKey(e.target.value)}
-                placeholder="Paste your API key here..."
-                className={`w-full ${THEME.glass.input} ${THEME.layout.borderRadius} px-4 py-2.5 text-xs text-zinc-300 focus:outline-none focus:ring-1 focus:ring-blue-500/30 transition-all font-mono`}
-              />
-              <p className="text-[9px] text-zinc-500">Get your key at <span className="text-blue-500 hover:underline cursor-pointer" onClick={() => window.electron.openUrl('https://aistudio.google.com/app/apikey')}>AI Studio</span></p>
-            </div>
-
-            <div className="space-y-2">
-              <label className="text-[10px] font-black text-zinc-400 uppercase tracking-widest">Expert Instructions (Gem Prompt)</label>
-              <textarea 
-                value={aiInstructions}
-                onChange={(e) => setAiInstructions(e.target.value)}
-                placeholder="Paste the personality/instructions from your shared Gem here..."
-                rows={4}
-                className={`w-full ${THEME.glass.input} ${THEME.layout.borderRadius} px-4 py-3 text-xs text-zinc-300 focus:outline-none focus:ring-1 focus:ring-blue-500/30 transition-all resize-none custom-scrollbar`}
-              />
-              <p className="text-[9px] text-zinc-500 italic">This prompt guides how the AI analyzes your conflicts. Use the style from your favorite Gem!</p>
-            </div>
-          </div>
         </div>
 
         <div className="p-6 border-t border-white/5 bg-white/5 flex justify-end gap-3">

@@ -104,7 +104,7 @@ const PresetsModal: React.FC<PresetsModalProps> = ({ isOpen, onClose, iniPath, o
           <div 
             className="absolute inset-y-0 left-6 w-72 pointer-events-none"
             style={{
-              backgroundImage: `url(/assets/config_preset.png)`,
+              backgroundImage: `url(assets/config_preset.png)`,
               backgroundSize: 'contain',
               backgroundRepeat: 'no-repeat',
               backgroundPosition: 'left center',
@@ -118,7 +118,7 @@ const PresetsModal: React.FC<PresetsModalProps> = ({ isOpen, onClose, iniPath, o
           <div 
             className="absolute inset-y-0 right-6 w-72 pointer-events-none transform scale-x-[-1]"
             style={{
-              backgroundImage: `url(/assets/config_preset.png)`,
+              backgroundImage: `url(assets/config_preset.png)`,
               backgroundSize: 'contain',
               backgroundRepeat: 'no-repeat',
               backgroundPosition: 'left center',

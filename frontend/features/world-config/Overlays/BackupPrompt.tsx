@@ -37,7 +37,7 @@ const BackupPrompt: React.FC<BackupPromptProps> = ({
             <div className="w-24 h-24 mx-auto mb-8 relative flex items-center justify-center">
               <div className="absolute inset-0 bg-amber-500/20 blur-3xl rounded-full" />
               <img 
-                src="/assets/trigger_preset_icon.png" 
+                src="assets/trigger_preset_icon.png" 
                 alt="Safety" 
                 className="w-20 h-20 object-contain relative z-10 brightness-110 drop-shadow-[0_0_20px_rgba(245,158,11,0.3)]" 
               />

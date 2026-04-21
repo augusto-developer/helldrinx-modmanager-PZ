@@ -39,8 +39,6 @@ export interface DiagnosisReport {
 export interface Settings {
   workshopPath: string;
   serverIniPath: string;
-  geminiApiKey?: string;
-  aiInstructions?: string;
 }
 
 export interface IniData {

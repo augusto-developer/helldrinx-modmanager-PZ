@@ -44,7 +44,7 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
           {/* Dynamic Background Layer (Cinematic) - Constrained to Main area */}
           <div className="absolute inset-0 z-0 pointer-events-none">
             <img 
-              src="/assets/background.png" 
+              src="assets/background.png" 
               className="w-full h-full object-fill" 
               alt="Atmospheric Background"
             />

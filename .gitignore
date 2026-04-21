@@ -56,3 +56,6 @@ CONVERSATION_LOG.md
 task.md
 implementation_plan.md
 walkthrough.md
+
+# Electron Output
+dist_electron/

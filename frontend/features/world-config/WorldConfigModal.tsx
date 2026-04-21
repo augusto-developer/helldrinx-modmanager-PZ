@@ -322,7 +322,7 @@ const WorldConfigModal: React.FC<WorldConfigModalProps> = ({ isOpen, onClose, in
               <div
                 className="absolute inset-0 left-6 w-full"
                 style={{
-                  backgroundImage: `url('/assets/edit_settings_icon.png')`,
+                  backgroundImage: `url('assets/edit_settings_icon.png')`,
                   backgroundSize: 'contain',
                   backgroundRepeat: 'no-repeat',
                   backgroundPosition: 'left center',
@@ -398,7 +398,7 @@ const WorldConfigModal: React.FC<WorldConfigModalProps> = ({ isOpen, onClose, in
             <div
               className="absolute inset-0 bg-black/65"
               style={{
-                backgroundImage: `url('/assets/background_worldconfig.png')`,
+                backgroundImage: `url('assets/background_worldconfig.png')`,
                 backgroundSize: 'cover',
                 backgroundPosition: 'center',
                 backgroundRepeat: 'no-repeat',

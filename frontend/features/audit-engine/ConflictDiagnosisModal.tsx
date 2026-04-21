@@ -1,6 +1,6 @@
 import React from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, Copy, Check, FileCode, Bot, Info, AlertTriangle, ExternalLink } from 'lucide-react';
+import { X, Copy, Check, FileCode, Activity, Info, AlertTriangle } from 'lucide-react';
 import { THEME } from '../../theme/design_system';
 import type { DiagnosisReport } from '../../types/mod_manager';
 
@@ -77,7 +77,7 @@ export const ConflictDiagnosisModal: React.FC<ConflictDiagnosisModalProps> = ({
           >
             <div className="flex flex-col items-center gap-4">
               <div className="w-16 h-16 rounded-full bg-white/5 border border-white/10 flex items-center justify-center animate-pulse">
-                <Bot size={32} className="text-zinc-500" />
+                <FileCode size={32} className="text-zinc-500" />
               </div>
               <h2 className="text-xl font-black text-white uppercase tracking-widest">Diagnosing...</h2>
               <p className="text-sm text-zinc-500 font-medium">Extracting code snippets and analyzing mod precedence.</p>
@@ -153,7 +153,7 @@ export const ConflictDiagnosisModal: React.FC<ConflictDiagnosisModalProps> = ({
               <div className="mb-8 p-6 rounded-2xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-between shadow-lg shadow-amber-500/5">
                 <div className="flex items-center gap-4">
                   <div className="w-12 h-12 rounded-xl bg-amber-500 flex items-center justify-center text-white shadow-lg shadow-amber-500/30">
-                    <Bot size={24} />
+                    <AlertTriangle size={24} />
                   </div>
                   <div>
                     <h3 className="text-xs font-black text-amber-500 uppercase tracking-[0.2em] mb-1">Audit Result: Priority Winner</h3>
@@ -244,8 +244,8 @@ export const ConflictDiagnosisModal: React.FC<ConflictDiagnosisModalProps> = ({
             <div className="p-6 border-t border-white/5 flex items-center justify-between bg-white/[0.02]">
               <div className="flex items-center gap-6">
                 <div className="flex items-center gap-2">
-                  <Bot size={14} className="text-blue-400" />
-                  <span className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">AI Audit System Active</span>
+                  <Activity size={14} className="text-blue-400" />
+                  <span className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">Diagnostic Engine Active</span>
                 </div>
               </div>
               <p className="text-[10px] text-zinc-600 font-bold uppercase tracking-widest leading-none">

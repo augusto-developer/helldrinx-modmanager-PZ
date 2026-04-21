@@ -55,7 +55,7 @@ const GlobalBackupModal: React.FC<GlobalBackupModalProps> = ({
         <div className="w-32 h-32 mx-auto mb-6 relative flex items-center justify-center">
           <div className="absolute inset-0 bg-emerald-500/25 blur-3xl rounded-full" />
           <img 
-            src="/assets/backup_icon.png" 
+            src="assets/backup_icon.png" 
             alt="Backup" 
             className="w-24 h-24 object-contain relative z-10 brightness-110 drop-shadow-[0_0_20px_rgba(16,185,129,0.4)] transition-transform hover:scale-110 duration-500" 
           />

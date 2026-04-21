@@ -39,7 +39,7 @@ export const SuccessModal: React.FC<SuccessModalProps> = ({ show, onClose }) => 
             <div className="w-24 h-24 mx-auto mb-8 relative flex items-center justify-center">
               <div className="absolute inset-0 bg-green-500/25 blur-3xl rounded-full" />
               <img
-                src="/assets/backup_completed.png"
+                src="assets/backup_completed.png"
                 alt="Success"
                 className="w-20 h-20 object-contain relative z-10 brightness-125 drop-shadow-[0_0_20px_rgba(16,185,129,0.5)]"
               />
