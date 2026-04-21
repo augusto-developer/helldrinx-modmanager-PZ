@@ -507,17 +507,6 @@ const WorldConfigModal: React.FC<WorldConfigModalProps> = ({ isOpen, onClose, in
           </div>
         </div>
 
-        {/* System Footer Status */}
-        <div className="px-8 py-3 bg-zinc-900/50 border-t border-zinc-800/50 flex items-center justify-between text-[10px] uppercase font-black tracking-[0.2em] text-zinc-600">
-          <div className="flex items-center gap-6">
-            <span className="flex items-center gap-2">
-              <div className={`w-1.5 h-1.5 rounded-full ${Object.keys(pendingChanges).length > 0 ? 'bg-amber-500 animate-pulse' : 'bg-green-500'}`} />
-              {Object.keys(pendingChanges).length > 0 ? 'Changes Staged' : 'System Stable'}
-            </span>
-            <span className="opacity-50">HELLDRINX ENGINE V2.1</span>
-          </div>
-          <div className="opacity-50">WORLD_CONFIG_SERVICE_0xMOD</div>
-        </div>
       </motion.div>
 
       {/* No redundant overlays here */}
