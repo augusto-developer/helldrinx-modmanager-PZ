@@ -1,46 +1,73 @@
-<p align="center">
-  <img width="935" height="238" alt="banner" src="https://github.com/user-attachments/assets/06bc6dd0-8199-45f0-9e1e-64ee011ce174" />
-</p>
+# React + TypeScript + Vite
 
+This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
 
-## 🛠️ How to Use
+Currently, two official plugins are available:
 
-Some images to help you: https://imgur.com/a/dabGiKW
+- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
+- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
 
-1. **Initial Setup:** Open the settings and configure the correct folder locations.
-2. **Mod Activation:** If the mods do not appear automatically, check the **Uninstalled** list and activate them.
-3. **Automatic Configuration:** Once the mods appear in your **Active List**, the `servertest.ini` file will be automatically configured.
-4. **Advanced Adjustments:** You can perform fine-tuning within the **Enhance Mod** panel.
-   > ⚠️ **NOTICE:** Not recommended for new players. Ensure you understand the basic mechanics first.
-5. **Presets Management:** * Click on **PRESET** to create a new one or import an existing file (e.g., `HellDrinx FULL [42_16+] - v2_0_1.ini`).
-   * **FULL Import:** Complete overwrite (Copy & Paste).
-   * **SOFT Import:** Updates only `Mods=`, `Map=`, and `WorkshopItems=`, preserving your specific server configurations.
-6. **Safety First:** Always generate a **BACKUP** before performing any experimental changes!
----
-> **💡 Tip:** You can click the icon next to the mod to open its Steam Workshop page. Check the right-hand sidebar on Steam to see if that mod has any mandatory dependencies.
-> 
-![Example: ](src/assets/requireditems.png)
+## React Compiler
 
----
+The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
 
-## 🛠️ Understanding the list:
+## Expanding the ESLint configuration
 
-* **Uninstalled Tab**: Always displays mods that are **DOWNLOADED** but **NOT ACTIVATED** on the server.
-* **Active Tab**: Displays mods that are downloaded and currently **ENABLED** in your server configuration.
+If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
 
-In the **Active** list, click **REMOVE** to send a mod to the **Uninstalled** list. Conversely, click **ACTIVATE** in the **Uninstalled** list to add it to your server.
+```js
+export default defineConfig([
+  globalIgnores(['dist']),
+  {
+    files: ['**/*.{ts,tsx}'],
+    extends: [
+      // Other configs...
 
-### Auto-Sorting ⚡
-The assistant analyzes each mod's dependencies and ensures your `servertest.ini` has the **PERFECT** load order, preventing crashes and compatibility errors.
+      // Remove tseslint.configs.recommended and replace with this
+      tseslint.configs.recommendedTypeChecked,
+      // Alternatively, use this for stricter rules
+      tseslint.configs.strictTypeChecked,
+      // Optionally, add this for stylistic rules
+      tseslint.configs.stylisticTypeChecked,
 
----
+      // Other configs...
+    ],
+    languageOptions: {
+      parserOptions: {
+        project: ['./tsconfig.node.json', './tsconfig.app.json'],
+        tsconfigRootDir: import.meta.dirname,
+      },
+      // other options...
+    },
+  },
+])
+```
 
-## 💎 Credits and Support
-Developed by **augusto-developer** with authorization to use the **HellDrinx** trademark, for the global Project Zomboid community.
+You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
 
+```js
+// eslint.config.js
+import reactX from 'eslint-plugin-react-x'
+import reactDom from 'eslint-plugin-react-dom'
 
-<div align="center">
-  <img src="https://komarev.com/ghpvc/?username=augusto-dev-helldrinx-pz&label=Visits:&color=blue&style=flat" alt="Contador de Visitas" />
-</div>
-
-
+export default defineConfig([
+  globalIgnores(['dist']),
+  {
+    files: ['**/*.{ts,tsx}'],
+    extends: [
+      // Other configs...
+      // Enable lint rules for React
+      reactX.configs['recommended-typescript'],
+      // Enable lint rules for React DOM
+      reactDom.configs.recommended,
+    ],
+    languageOptions: {
+      parserOptions: {
+        project: ['./tsconfig.node.json', './tsconfig.app.json'],
+        tsconfigRootDir: import.meta.dirname,
+      },
+      // other options...
+    },
+  },
+])
+```

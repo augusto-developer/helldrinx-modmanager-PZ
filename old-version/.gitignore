@@ -1,0 +1,28 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+node_modules
+
+# Project Local Cache / Logs
+mods_cache.json
+
+# Antigravity
+.agent/
+scanner_debug.log
+*.log
+src/trash/
+
+# Build and Electron
+dist/
+dist-electron/
+dist-python/
+build/
+build-python/
+out/

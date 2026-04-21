@@ -1,28 +1,58 @@
-# Python-generated files
-__pycache__/
-*.py[oc]
-build/
-dist/
-wheels/
-*.egg-info
-
-# Virtual environments
-.venv
-node_modules
-
-# Project Local Cache / Logs
-mods_cache.json
-
-# Antigravity
-.agent/
-scanner_debug.log
+# Logs
+logs
 *.log
-src/trash/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
 
-# Build and Electron
+# Dependencies
+node_modules/
 dist/
-dist-electron/
-dist-python/
+dist-ssr/
+*.local
+
+# Architecture & Environment
+.agent/
+.gemini/
+antigravity-kit/
+old-version/.git/
+old-version/node_modules/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+env/
+venv/
+ENV/
 build/
-build-python/
-out/
+develop-eggs/
+eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Editor
+.vscode/
+.idea/
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Project Zomboid Temporary/Extra
+tmp_servertest.ini
+CONVERSATION_LOG.md
+task.md
+implementation_plan.md
+walkthrough.md
