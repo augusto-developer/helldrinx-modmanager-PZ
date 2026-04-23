@@ -1,7 +1,7 @@
 {
   "name": "helldrinx-mod-manager",
   "private": true,
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "The Ultimate Audit and Management Engine for Project Zomboid Mods",
   "author": "HellDrinx Team",
   "type": "module",
@@ -20,6 +20,13 @@
     "directories": {
       "output": "dist_electron"
     },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "augusto-developer",
+        "repo": "helldrinx-modmanager-PZ"
+      }
+    ],
     "files": [
       "dist/**/*",
       "backend/**/*",
@@ -49,6 +56,7 @@
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
+    "electron-updater": "^6.8.3",
     "framer-motion": "^12.38.0",
     "lucide-react": "^1.8.0",
     "react": "^19.2.4",

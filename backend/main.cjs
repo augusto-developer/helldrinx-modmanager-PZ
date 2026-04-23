@@ -1,6 +1,11 @@
 const { app, BrowserWindow, ipcMain, dialog, protocol, net, shell } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const { autoUpdater } = require('electron-updater');
+
+// Configure Auto Updater
+autoUpdater.autoDownload = true;
+autoUpdater.allowPrerelease = false;
 
 // --- EMERGENCY STARTUP LOGGING ---
 const LOG_PATH = path.join(app.getPath('userData'), 'crash-report.txt');
@@ -98,6 +103,26 @@ app.whenReady().then(() => {
   });
 
   createWindow();
+  
+  // Update Logic
+  autoUpdater.on('update-available', () => {
+    console.log('[Updater] Update available.');
+  });
+
+  autoUpdater.on('update-downloaded', (info) => {
+    dialog.showMessageBox({
+      type: 'info',
+      title: 'Update Ready',
+      message: `A new version (${info.version}) has been downloaded. The application will restart to apply the update.`,
+      buttons: ['Restart now', 'Later']
+    }).then((result) => {
+      if (result.response === 0) {
+        autoUpdater.quitAndInstall();
+      }
+    });
+  });
+
+  autoUpdater.checkForUpdatesAndNotify();
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
