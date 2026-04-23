@@ -61,7 +61,7 @@ declare global {
   interface Window {
     electron: {
       selectFolder: () => Promise<string | null>;
-      selectFile: () => Promise<string | null>;
+      selectFile: (filters?: { name: string, extensions: string[] }[]) => Promise<string | null>;
       readIni: (path: string) => Promise<IniData | { error: string }>;
       saveIni: (data: { iniPath: string } & IniData) => Promise<SaveResult>;
       syncIni: (data: { iniPath: string, modIds: string[] }) => Promise<SyncResult>;

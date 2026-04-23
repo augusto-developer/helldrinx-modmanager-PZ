@@ -30,6 +30,7 @@ class WorkshopService {
     };
     this.CRITICAL_DIRS = ['lua', 'scripts', 'maps', 'clothing', 'animsets', 'ui'];
     this.ignoredFingerprints = [];
+    this.SCANNER_VERSION = 2;
   }
 
   setIgnoredFingerprints(fingerprints) {
@@ -92,7 +93,8 @@ class WorkshopService {
           // If at media root and onlyCritical is true, only enter critical subdirs
           if (onlyCritical && path.relative(baseDir, dirPath) === '') {
             if (this.CRITICAL_DIRS.includes(nameLower)) {
-              this.getAllFiles(fullPath, baseDir, arrayOfFiles, onlyCritical);
+              // Once we enter a critical folder, we scan EVERYTHING inside it (onlyCritical = false)
+              this.getAllFiles(fullPath, baseDir, arrayOfFiles, false);
             }
           } else {
             this.getAllFiles(fullPath, baseDir, arrayOfFiles, onlyCritical);
@@ -206,10 +208,17 @@ class WorkshopService {
 
       const bestVersions = new Map();
       const cacheMap = new Map();
+      let cachedVersion = 0;
+
       if (fs.existsSync(cachePath)) {
         try {
-          const cached = JSON.parse(fs.readFileSync(cachePath, 'utf8'));
-          cached.forEach(m => cacheMap.set(m.id, m));
+          const cachedData = JSON.parse(fs.readFileSync(cachePath, 'utf8'));
+          
+          // Handle both old array format and new versioned object format
+          const cachedMods = Array.isArray(cachedData) ? cachedData : (cachedData.mods || []);
+          cachedVersion = Array.isArray(cachedData) ? 1 : (cachedData.version || 1);
+
+          cachedMods.forEach(m => cacheMap.set(m.id, m));
         } catch (e) { }
       }
 
@@ -314,7 +323,11 @@ class WorkshopService {
 
                 let mediaFiles = [];
                 const cachedMod = cacheMap.get(rawId);
-                if (cachedMod && cachedMod.absolute_path === basePath && cachedMod.media_files) {
+                
+                // Only reuse media_files if the scanner version hasn't changed
+                const canReuseMedia = cachedVersion === this.SCANNER_VERSION;
+
+                if (cachedMod && cachedMod.absolute_path === basePath && cachedMod.media_files && canReuseMedia) {
                   mediaFiles = cachedMod.media_files;
                 } else {
                   const mediaPath = path.join(basePath, 'media');
@@ -374,7 +387,11 @@ class WorkshopService {
       this.scannedMods = finalResult;
 
       try {
-        fs.writeFileSync(cachePath, JSON.stringify(finalResult), 'utf8');
+        const cacheData = {
+          version: this.SCANNER_VERSION,
+          mods: finalResult
+        };
+        fs.writeFileSync(cachePath, JSON.stringify(cacheData), 'utf8');
       } catch (e) {
         console.error('[WorkshopService] Cache save failed:', e);
       }

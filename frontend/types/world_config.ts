@@ -55,7 +55,7 @@ export interface TabType {
 // 📡 Electron Bridge Interface
 export interface ElectronBridge {
   selectFolder: () => Promise<string | null>;
-  selectFile: () => Promise<string | null>;
+  selectFile: (filters?: { name: string, extensions: string[] }[]) => Promise<string | null>;
   readIni: (path: string) => Promise<unknown>;
   saveIni: (data: unknown) => Promise<void>;
   syncIni: (data: unknown) => Promise<void>;

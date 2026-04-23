@@ -28,7 +28,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, o
   };
 
   const handleSelectIni = async () => {
-    const path = await ipcService.selectFile();
+    const path = await ipcService.selectFile([{ name: 'INI Files', extensions: ['ini'] }]);
     if (path) setServerIniPath(path);
   };
 

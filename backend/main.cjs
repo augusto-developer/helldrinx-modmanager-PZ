@@ -322,10 +322,10 @@ ipcMain.handle('select-folder', async () => {
   return result.canceled ? null : result.filePaths[0];
 });
 
-ipcMain.handle('select-file', async () => {
+ipcMain.handle('select-file', async (event, filters) => {
   const result = await dialog.showOpenDialog(mainWindow, {
     properties: ['openFile'],
-    filters: [{ name: 'INI Files', extensions: ['ini'] }]
+    filters: filters || [{ name: 'INI Files', extensions: ['ini'] }]
   });
   return result.canceled ? null : result.filePaths[0];
 });

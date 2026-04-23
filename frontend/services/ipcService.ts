@@ -32,8 +32,8 @@ export const ipcService = {
   selectFolder: (): Promise<string | null> =>
     electron.selectFolder(),
 
-  selectFile: (): Promise<string | null> =>
-    electron.selectFile(),
+  selectFile: (filters?: { name: string, extensions: string[] }[]): Promise<string | null> =>
+    electron.selectFile(filters),
 
   openFolder: (path: string): Promise<boolean> =>
     electron.openFolder(path),

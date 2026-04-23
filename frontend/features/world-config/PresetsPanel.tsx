@@ -84,7 +84,7 @@ const PresetsPanel: React.FC<PresetsPanelProps> = ({
             </div>
             <button
               onClick={async () => {
-                const file = await ipcService.selectFile();
+                const file = await ipcService.selectFile([{ name: 'INI Files', extensions: ['ini'] }]);
                 if (file) setSelectedIniPreset(file);
               }}
               className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-[10px] font-black uppercase tracking-widest rounded-lg transition-all"
@@ -139,7 +139,7 @@ const PresetsPanel: React.FC<PresetsPanelProps> = ({
             </div>
             <button
               onClick={async () => {
-                const file = await ipcService.selectFile();
+                const file = await ipcService.selectFile([{ name: 'Lua Files', extensions: ['lua'] }]);
                 if (file) setSelectedLuaPreset(file);
               }}
               className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-[10px] font-black uppercase tracking-widest rounded-lg transition-all"
