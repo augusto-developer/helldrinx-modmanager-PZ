@@ -1,7 +1,7 @@
 {
   "name": "helldrinx-mod-manager",
   "private": true,
-  "version": "1.0.1",
+  "version": "2.2.1",
   "description": "The Ultimate Audit and Management Engine for Project Zomboid Mods",
   "author": "HellDrinx Team",
   "type": "module",
