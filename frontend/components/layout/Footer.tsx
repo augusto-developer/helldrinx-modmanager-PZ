@@ -9,7 +9,7 @@ import { ArrowUpCircle, Download } from 'lucide-react';
 export const Footer: React.FC = () => {
   // Mock state for demonstration - will be connected to auto-updater logic later
   const [hasUpdate] = useState(false);
-  const APP_VERSION = "V2.2.0-STABLE";
+  const APP_VERSION = "V2.3.0-STABLE";
 
   return (
     <footer className="h-8 bg-zinc-950/60 backdrop-blur-md border-t border-white/5 flex items-center justify-between px-8 shrink-0 z-20 relative">
