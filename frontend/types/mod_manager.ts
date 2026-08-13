@@ -6,9 +6,16 @@ export interface Mod {
   poster_url?: string;
   require: string[];
   incompatible?: string[];
+  authors?: string[];
+  description?: string;
+  pzversion?: string;
+  url?: string;
+  loadAfter?: string[];
+  loadBefore?: string[];
   media_files?: string[];
   absolute_path?: string;
   category?: string;
+  categories?: string[];
 }
 
 export interface Issue {
@@ -21,19 +28,6 @@ export interface Issue {
   conflictingWith?: string[];
   targetModId?: string;
   fingerprint?: string;
-}
-
-export interface DiagnosisReport {
-  issue: Issue;
-  mods: Array<{
-    id: string;
-    name: string;
-    path: string;
-    workshopId: string;
-  }>;
-  snippets: { [modId: string]: string };
-  aiContext: string;
-  error?: string;
 }
 
 export interface Settings {
@@ -82,9 +76,7 @@ declare global {
       createMultiBackup: (data: { sourceDirs: string[], zipPath: string }) => Promise<SaveResult>;
       ignoreConflictFingerprint: (fingerprint: string) => Promise<SaveResult>;
       unignoreConflictFingerprint: (fingerprint: string) => Promise<SaveResult>;
-      diagnoseConflict: (data: { fingerprint: string, activeModIds: string[], filePath?: string }) => Promise<DiagnosisReport>;
       showItemInFolder: (path: string) => Promise<boolean>;
-      generateAiDiagnosis: (context: string) => Promise<string | { error: string }>;
     };
   }
 }

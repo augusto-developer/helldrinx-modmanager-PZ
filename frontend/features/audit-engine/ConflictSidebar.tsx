@@ -2,8 +2,7 @@ import React from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, AlertCircle, AlertTriangle, Package, Search, EyeOff, Activity } from 'lucide-react';
 import { THEME } from '../../theme/design_system';
-import type { Issue, DiagnosisReport } from '../../types/mod_manager';
-import { ConflictDiagnosisModal } from './ConflictDiagnosisModal';
+import type { Issue } from '../../types/mod_manager';
 import { useMods } from '../../context/ModContext';
 
 interface ConflictSidebarProps {
@@ -12,7 +11,6 @@ interface ConflictSidebarProps {
   issues: Issue[];
   onLocateMod: (modId: string) => void;
   onIgnoreConflict: (fingerprint: string) => void;
-  onDiagnose: (fingerprint: string, fileKey?: string) => Promise<DiagnosisReport | null>;
 }
 
 export const ConflictSidebar: React.FC<ConflictSidebarProps> = ({
@@ -20,13 +18,10 @@ export const ConflictSidebar: React.FC<ConflictSidebarProps> = ({
   onClose,
   issues,
   onLocateMod,
-  onIgnoreConflict,
-  onDiagnose
+  onIgnoreConflict
 }) => {
   const [activeTab, setActiveTab] = React.useState<'conflicts' | 'missing' | 'ignored'>('conflicts');
   const [confirmIgnoreId, setConfirmIgnoreId] = React.useState<string | null>(null);
-  const [diagnosisReport, setDiagnosisReport] = React.useState<DiagnosisReport | null>(null);
-  const [isDiagnosisOpen, setIsDiagnosisOpen] = React.useState(false);
   const [showFooter, setShowFooter] = React.useState(true);
   const { mods, ignoredIssues, restoreConflict } = useMods();
 
@@ -133,14 +128,6 @@ export const ConflictSidebar: React.FC<ConflictSidebarProps> = ({
       };
     });
   }, [ignoredIssues]);
-
-  const handleRunDiagnosis = async (fingerprint: string, fileKey?: string) => {
-    if (fingerprint.startsWith('legacy-')) return;
-    setIsDiagnosisOpen(true);
-    setDiagnosisReport(null);
-    const report = await onDiagnose(fingerprint, fileKey);
-    setDiagnosisReport(report);
-  };
 
   return (
     <>
@@ -293,23 +280,6 @@ export const ConflictSidebar: React.FC<ConflictSidebarProps> = ({
                           >
                             <Search size={12} />
                             Locate
-                          </button>
-
-                          <button
-                            onClick={() => {
-                              if (group.primaryFingerprint) {
-                                handleRunDiagnosis(group.primaryFingerprint, group.fileKey);
-                              }
-                            }}
-                            className={`py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all flex items-center justify-center gap-2 border border-blue-500/20 shadow-lg ${
-                              !group.primaryFingerprint 
-                              ? 'bg-zinc-800 text-zinc-600 cursor-not-allowed opacity-50'
-                              : 'bg-blue-500/10 text-blue-400 hover:bg-blue-500 hover:text-white shadow-blue-500/5 shadow-[0_0_15px_rgba(59,130,246,0.1)]'
-                            }`}
-                            disabled={!group.primaryFingerprint}
-                          >
-                            <Activity size={12} />
-                            Diagnose
                           </button>
                         </div>
 
@@ -482,12 +452,6 @@ export const ConflictSidebar: React.FC<ConflictSidebarProps> = ({
           </>
         )}
       </AnimatePresence>
-
-      <ConflictDiagnosisModal 
-        isOpen={isDiagnosisOpen}
-        onClose={() => setIsDiagnosisOpen(false)}
-        report={diagnosisReport}
-      />
     </>
   );
 };

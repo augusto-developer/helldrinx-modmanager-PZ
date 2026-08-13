@@ -32,7 +32,7 @@ interface ModContextType {
   restoreConflict: (fingerprint: string) => Promise<void>;
   refreshIssues: () => Promise<void>;
   deactivateAll: () => Promise<void>;
-  diagnoseConflict: (fingerprint: string, filePath?: string) => Promise<any>;
+  activateAll: (targetIds?: string[]) => Promise<void>;
 }
 
 const ModContext = createContext<ModContextType | undefined>(undefined);
@@ -117,6 +117,13 @@ export const ModProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (iniPath) await handleSyncAll(iniPath, []);
   }, [iniPath, handleSyncAll]);
 
+  const activateAll = useCallback(async (targetIds?: string[]) => {
+    if (!iniPath) return;
+    const idsToAdd = targetIds || mods.map(m => m.id);
+    const combined = Array.from(new Set([...serverMods, ...idsToAdd]));
+    await handleSyncAll(iniPath, combined);
+  }, [iniPath, serverMods, mods, handleSyncAll]);
+
   const value = useMemo(() => ({
     mods,
     serverMods,
@@ -140,7 +147,7 @@ export const ModProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     restoreConflict: modManager.handleRestoreConflict,
     refreshIssues: wrappedRefreshIssues,
     deactivateAll,
-    diagnoseConflict: modManager.handleDiagnose,
+    activateAll,
     highlightedModId,
     setHighlightedModId
   }), [
@@ -148,7 +155,7 @@ export const ModProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     activeTab, workshopPath, iniPath, activeFileName,
     settingsManager.isSettingsOpen, toggleMod, wrappedDeactivate, wrappedLoadData,
     saveSettings, modManager.handleIgnoreConflict, wrappedRefreshIssues, deactivateAll,
-    highlightedModId
+    activateAll, highlightedModId
   ]);
 
   return <ModContext.Provider value={value}>{children}</ModContext.Provider>;

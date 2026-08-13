@@ -175,14 +175,6 @@ if (fs.existsSync(SETTINGS_PATH)) {
 ipcMain.handle('scan-workshop', async (event, path) => workshopService.scanWorkshop(path, CACHE_PATH));
 ipcMain.handle('get-cached-mods', () => workshopService.scannedMods);
 ipcMain.handle('get-all-conflicts', async (event, activeModIds) => workshopService.getAllConflicts(activeModIds));
-ipcMain.handle('diagnose-conflict', async (event, { fingerprint, activeModIds, filePath }) => {
-  try {
-    return await workshopService.diagnoseConflict(fingerprint, activeModIds, filePath);
-  } catch (e) {
-    console.error('IPC Diagnosis Error:', e);
-    return { error: e.message };
-  }
-});
 
 ipcMain.handle('ignore-conflict-fingerprint', async (event, fingerprint) => {
   try {
@@ -387,20 +379,4 @@ ipcMain.handle('show-item-in-folder', async (event, path) => {
 ipcMain.handle('open-url', async (event, url) => {
   try { if (url) { await shell.openExternal(url); return true; } } catch (e) { }
   return false;
-});
-
-ipcMain.handle('ai-generate-diagnosis', async (event, { context }) => {
-  try {
-    const settings = JSON.parse(fs.readFileSync(SETTINGS_PATH, 'utf8'));
-    const apiKey = settings.geminiApiKey;
-    const instructions = settings.aiInstructions;
-    
-    if (!apiKey) throw new Error('GEMINI_API_KEY_MISSING');
-    
-    const aiService = new GeminiService(apiKey);
-    return await aiService.generateDiagnosis(instructions, context);
-  } catch (e) {
-    console.error('[Electron] AI Error:', e);
-    return { error: e.message };
-  }
 });

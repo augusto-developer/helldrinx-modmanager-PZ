@@ -39,7 +39,7 @@ const AppContent: React.FC = () => {
     toggleMod,
     removeFromActive,
     deactivateAll,
-    diagnoseConflict,
+    activateAll,
     setHighlightedModId
   } = useMods();
 
@@ -143,6 +143,7 @@ const AppContent: React.FC = () => {
           onActivate={(id) => toggleMod(id)}
           onDeactivate={(id) => toggleMod(id)}
           onDeactivateAll={deactivateAll}
+          onActivateAll={activateAll}
           loading={loading !== 'none'}
         />
 
@@ -155,7 +156,6 @@ const AppContent: React.FC = () => {
         issues={issues}
         onLocateMod={scrollToMod}
         onIgnoreConflict={ignoreConflict}
-        onDiagnose={diagnoseConflict}
       />
 
       <AnimatePresence>

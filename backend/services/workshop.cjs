@@ -14,12 +14,19 @@ class WorkshopService {
       "resource": 3,
       "map": 4,
       "vehicle": 5,
-      "code": 6,
-      "clothes": 7,
-      "ui": 8,
-      "other": 9,
-      "translation": 10,
-      "undefined": 11
+      "weapons": 6,
+      "code": 7,
+      "clothes": 8,
+      "items": 9,
+      "sound": 10,
+      "animations": 11,
+      "tiles": 12,
+      "traits": 13,
+      "npc": 14,
+      "ui": 15,
+      "other": 16,
+      "translation": 17,
+      "undefined": 18
     };
     this.PREORDER_MODS = {
       "modloadordersorter_b42": 0,
@@ -28,9 +35,9 @@ class WorkshopService {
       "modmanagerserver": 2,
       "modoptions": 3
     };
-    this.CRITICAL_DIRS = ['lua', 'scripts', 'maps', 'clothing', 'animsets', 'ui'];
+    this.CRITICAL_DIRS = ['lua', 'scripts', 'maps', 'clothing', 'animsets', 'ui', 'tiledefinitions', 'sound'];
     this.ignoredFingerprints = [];
-    this.SCANNER_VERSION = 2;
+    this.SCANNER_VERSION = 7;
   }
 
   setIgnoredFingerprints(fingerprints) {
@@ -131,12 +138,28 @@ class WorkshopService {
       const normMid = this.normalizeId(mid);
       const info = this.scannedMods.find(m => this.normalizeId(m.id) === normMid);
 
-      if (info && info.require) {
-        info.require.forEach(reqId => {
-          const normReq = this.normalizeId(reqId);
-          const targetId = nodes.find(n => this.normalizeId(n) === normReq);
-          if (targetId) addEdge(targetId, mid);
-        });
+      if (info) {
+        if (info.require) {
+          info.require.forEach(reqId => {
+            const normReq = this.normalizeId(reqId);
+            const targetId = nodes.find(n => this.normalizeId(n) === normReq);
+            if (targetId) addEdge(targetId, mid);
+          });
+        }
+        if (info.loadAfter) {
+          info.loadAfter.forEach(afterId => {
+            const normAfter = this.normalizeId(afterId);
+            const targetId = nodes.find(n => this.normalizeId(n) === normAfter);
+            if (targetId) addEdge(targetId, mid);
+          });
+        }
+        if (info.loadBefore) {
+          info.loadBefore.forEach(beforeId => {
+            const normBefore = this.normalizeId(beforeId);
+            const targetId = nodes.find(n => this.normalizeId(n) === normBefore);
+            if (targetId) addEdge(mid, targetId);
+          });
+        }
       }
 
       const rules = this.sortingRules[normMid];
@@ -300,26 +323,140 @@ class WorkshopService {
                 const requireLine = content.match(/^require=(.*)/im)?.[1]?.trim();
                 const requirements = requireLine ? requireLine.split(',').map(s => s.trim()).filter(Boolean) : [];
 
-                const maps = [];
-                const mediaMapsPath = path.join(basePath, 'media', 'maps');
-                if (fs.existsSync(mediaMapsPath)) {
-                  try {
-                    const mapFolders = fs.readdirSync(mediaMapsPath).filter(f => fs.statSync(path.join(mediaMapsPath, f)).isDirectory());
-                    maps.push(...mapFolders);
-                  } catch (e) { }
+                const authorsLine = content.match(/^authors?=(.*)/im)?.[1]?.trim();
+                const authors = authorsLine ? authorsLine.split(',').map(s => s.trim()).filter(Boolean) : [];
+
+                const descriptionLine = content.match(/^description=(.*)/im)?.[1]?.trim();
+                const description = descriptionLine || null;
+
+                const pzVersion = content.match(/^(?:pzversion|modversion|version)=(.*)/im)?.[1]?.trim() || null;
+                const url = content.match(/^(?:url|link)=(.*)/im)?.[1]?.trim() || null;
+
+                const loadAfterLine = content.match(/^load(?:after)?=(.*)/im)?.[1]?.trim();
+                const loadAfter = loadAfterLine ? loadAfterLine.split(/[,;]/).map(s => s.trim()).filter(Boolean) : [];
+
+                const loadBeforeLine = content.match(/^load(?:before)?=(.*)/im)?.[1]?.trim();
+                const loadBefore = loadBeforeLine ? loadBeforeLine.split(/[,;]/).map(s => s.trim()).filter(Boolean) : [];
+
+                const categoryLine = content.match(/^category=(.*)/im)?.[1]?.trim() || '';
+                const tagsLine = content.match(/^tags?=(.*)/im)?.[1]?.trim() || '';
+                const rawCategoryTokens = `${categoryLine},${tagsLine}`
+                  .split(/[,;]/)
+                  .map(s => s.trim().toLowerCase())
+                  .filter(Boolean);
+
+                const categoriesSet = new Set();
+
+                const mapTokenToCategory = (token) => {
+                  if (token.includes('vehicle') || token.includes('car') || token.includes('truck') || token.includes('auto') || token.includes('rv')) return 'vehicle';
+                  if (token.includes('map') || token.includes('location') || token.includes('city') || token.includes('town')) return 'map';
+                  if (token.includes('weapon') || token.includes('gun') || token.includes('firearm') || token.includes('ammo')) return 'weapons';
+                  if (token.includes('clothing') || token.includes('cloth') || token.includes('armor') || token.includes('gear')) return 'clothes';
+                  if (token.includes('item') || token.includes('recipe') || token.includes('craft') || token.includes('food')) return 'items';
+                  if (token.includes('sound') || token.includes('music') || token.includes('audio') || token.includes('radio')) return 'sound';
+                  if (token.includes('anim')) return 'animations';
+                  if (token.includes('tile')) return 'tiles';
+                  if (token.includes('trait') || token.includes('perk') || token.includes('profession')) return 'traits';
+                  if (token.includes('npc') || token.includes('survivor')) return 'npc';
+                  if (token.includes('tweak') || token.includes('framework') || token.includes('api') || token.includes('lib')) return 'tweaks';
+                  if (token.includes('ui') || token.includes('interface')) return 'ui';
+                  if (token.includes('translation') || token.includes('language') || token.includes('traducao') || token.includes('tradução')) return 'translation';
+                  return null;
+                };
+
+                for (const token of rawCategoryTokens) {
+                  const cat = mapTokenToCategory(token);
+                  if (cat) categoriesSet.add(cat);
                 }
 
-                let category = 'other';
-                const nameLower = modName.toLowerCase();
-                const idLower = normId.toLowerCase();
+                const maps = [];
+                const searchForMaps = (startDir, depth = 0) => {
+                  if (!fs.existsSync(startDir) || depth > 5) return;
+                  try {
+                    const entries = fs.readdirSync(startDir, { withFileTypes: true });
+                    for (const ent of entries) {
+                      if (ent.isDirectory()) {
+                        const full = path.join(startDir, ent.name);
+                        const nameLower = ent.name.toLowerCase();
+
+                        if (nameLower === 'maps' && path.basename(path.dirname(full)).toLowerCase() === 'media') {
+                          try {
+                            const subFolders = fs.readdirSync(full, { withFileTypes: true })
+                              .filter(d => d.isDirectory())
+                              .map(d => d.name);
+                            subFolders.forEach(sf => {
+                              if (!maps.includes(sf)) maps.push(sf);
+                            });
+                          } catch (e) { }
+                        } else {
+                          searchForMaps(full, depth + 1);
+                        }
+                      }
+                    }
+                  } catch (e) { }
+                };
+
+                searchForMaps(basePath, 0);
+                if (modRootPath && modRootPath !== basePath) {
+                  searchForMaps(modRootPath, 0);
+                }
+
                 const hasFile = (sub) => fs.existsSync(path.join(basePath, ...sub.split('/')));
 
-                if (maps.length > 0) category = 'map';
-                else if (hasFile('media/models_X/vehicles') || hasFile('media/models/vehicles')) category = 'vehicle';
-                else if (nameLower.includes('api') || nameLower.includes('framework') || idLower.includes('api') || idLower.includes('lib')) category = 'tweaks';
-                else if (hasFile('media/ui') || hasFile('media/textures/ui')) category = 'ui';
-                else if (hasFile('media/lua/shared/Translate')) category = 'translation';
-                else if (hasFile('media/lua/client') || hasFile('media/lua/server')) category = 'code';
+                // Fallback to physical folder structure if mod.info has no category/tags
+                if (categoriesSet.size === 0) {
+                  if (maps.length > 0) categoriesSet.add('map');
+                  if (
+                    hasFile('media/models_X/vehicles') || 
+                    hasFile('media/models/vehicles') || 
+                    hasFile('media/scripts/vehicles') || 
+                    hasFile('media/lua/shared/Vehicles') || 
+                    hasFile('media/textures/vehicles')
+                  ) categoriesSet.add('vehicle');
+
+                  if (
+                    hasFile('media/models/weapons') || 
+                    hasFile('media/models_X/weapons') || 
+                    hasFile('media/scripts/weapons')
+                  ) categoriesSet.add('weapons');
+
+                  if (
+                    hasFile('media/clothing') || 
+                    hasFile('media/textures/clothing') || 
+                    hasFile('clothing')
+                  ) categoriesSet.add('clothes');
+
+                  if (
+                    hasFile('media/scripts/items') || 
+                    hasFile('media/scripts/recipes')
+                  ) categoriesSet.add('items');
+
+                  if (
+                    hasFile('media/sound') || 
+                    hasFile('media/audio') || 
+                    hasFile('media/lua/shared/Radio-Data')
+                  ) categoriesSet.add('sound');
+
+                  if (
+                    hasFile('media/animsets') || 
+                    hasFile('media/anims') || 
+                    hasFile('animsets')
+                  ) categoriesSet.add('animations');
+
+                  if (
+                    hasFile('media/tiledefinitions') || 
+                    hasFile('media/textures/tile')
+                  ) categoriesSet.add('tiles');
+
+                  if (hasFile('media/lua/shared/NPCs/MainCreationMethods.lua')) categoriesSet.add('traits');
+                  if (hasFile('media/lua/shared/NPCs')) categoriesSet.add('npc');
+                  if (hasFile('media/ui') || hasFile('media/textures/ui')) categoriesSet.add('ui');
+                  if (hasFile('media/lua/client') || hasFile('media/lua/server')) categoriesSet.add('code');
+                  if (categoriesSet.size === 0 && hasFile('media/lua/shared/Translate')) categoriesSet.add('translation');
+                }
+
+                const detectedCategories = Array.from(categoriesSet);
+                const primaryCategory = detectedCategories[0] || 'other';
 
                 let mediaFiles = [];
                 const cachedMod = cacheMap.get(rawId);
@@ -348,11 +485,18 @@ class WorkshopService {
                   poster_url: posterUrl,
                   require: requirements,
                   incompatible: incompatibilities,
+                  authors: authors,
+                  description: description,
+                  pzversion: pzVersion,
+                  url: url,
+                  loadAfter: loadAfter,
+                  loadBefore: loadBefore,
                   media_files: mediaFiles,
                   score: bestScore,
                   absolute_path: basePath,
                   maps: maps,
-                  category: category
+                  category: primaryCategory,
+                  categories: detectedCategories.length > 0 ? detectedCategories : ['other']
                 });
               }
             }
@@ -405,75 +549,79 @@ class WorkshopService {
 
   getAllConflicts(activeModIds) {
     const issues = [];
-    const fileToMods = new Map();
     const normalizedActiveIds = activeModIds.map(id => this.normalizeId(id));
     const activeIdSet = new Set(normalizedActiveIds);
     const activeMods = this.scannedMods.filter(m => activeIdSet.has(this.normalizeId(m.id)));
 
+    // Map of normalized ID -> Mod object for fast lookup
+    const activeModMap = new Map();
+    activeMods.forEach(m => activeModMap.set(this.normalizeId(m.id), m));
+
+    // Track added incompatibility pairs to prevent duplicates: "normIdA::normIdB"
+    const addedIncompatPairs = new Set();
+
     for (const mod of activeMods) {
-      if (mod.require) {
+      const normModId = this.normalizeId(mod.id);
+
+      // 1. Missing required dependencies
+      if (mod.require && Array.isArray(mod.require)) {
         mod.require.forEach(req => {
           const reqNormId = this.normalizeId(req);
           if (!activeIdSet.has(reqNormId)) {
             const actualMod = this.scannedMods.find(m => this.normalizeId(m.id) === reqNormId);
             issues.push({
-              modId: mod.id, modName: mod.name, type: 'missing',
+              modId: mod.id,
+              modName: mod.name,
+              type: 'missing',
               targetModId: actualMod ? actualMod.id : req,
-              detail: `Missing: ${req}`
+              detail: `Missing requirement: ${actualMod ? actualMod.name : req}`
             });
           }
         });
       }
 
-      if (mod.incompatible) {
+      // 2. Explicit Incompatibilities (Bi-directional)
+      if (mod.incompatible && Array.isArray(mod.incompatible)) {
         mod.incompatible.forEach(inc => {
-          if (activeIdSet.has(this.normalizeId(inc))) {
-            issues.push({
-              modId: mod.id, modName: mod.name, type: 'conflict', subType: 'rule',
-              detail: `Incompatible with: ${inc}`
-            });
+          const incNormId = this.normalizeId(inc);
+          if (activeIdSet.has(incNormId)) {
+            const targetMod = activeModMap.get(incNormId);
+            const targetName = targetMod ? targetMod.name : inc;
+            const targetRealId = targetMod ? targetMod.id : inc;
+
+            const pairKey = [normModId, incNormId].sort().join('::');
+            const fingerprint = crypto.createHash('sha256').update(`rule::${pairKey}`).digest('hex');
+
+            // Add issue for current mod (Mod A)
+            const issueKeyA = `${normModId}::${incNormId}`;
+            if (!addedIncompatPairs.has(issueKeyA)) {
+              addedIncompatPairs.add(issueKeyA);
+              issues.push({
+                modId: mod.id,
+                modName: mod.name,
+                type: 'conflict',
+                subType: 'rule',
+                detail: `Incompatible with: ${targetName}`,
+                conflictingWith: [targetRealId],
+                fingerprint
+              });
+            }
+
+            // Bi-directional enforcement: Add issue for target mod (Mod B) as well
+            const issueKeyB = `${incNormId}::${normModId}`;
+            if (!addedIncompatPairs.has(issueKeyB)) {
+              addedIncompatPairs.add(issueKeyB);
+              issues.push({
+                modId: targetRealId,
+                modName: targetName,
+                type: 'conflict',
+                subType: 'rule',
+                detail: `Incompatible with: ${mod.name}`,
+                conflictingWith: [mod.id],
+                fingerprint
+              });
+            }
           }
-        });
-      }
-
-      if (mod.media_files) {
-        mod.media_files.forEach(filePath => {
-          // Skip engine-level files that are merged organically by Project Zomboid 
-          // and common texture files that are harmless overwrites
-          const ignoredFiles = ['sandbox-options.txt', 'fileguidtable.xml', 'mf_ismoodle.lua', 'hat_gasmask_nofilter.xml', 'hat_gasmask.xml', 'kp_extrabodylocations.lua', 'registries.lua', 'sounds_tmrremovemumble.txt', 'null.wav'];
-          const ignoredExtensions = ['.png', '.jpg', '.jpeg', '.tga', '.dds', '.fbx', '.x'];
-          
-          const fileName = path.basename(filePath).toLowerCase();
-          const fileExt = path.extname(filePath).toLowerCase();
-
-          if (ignoredFiles.includes(fileName) || ignoredExtensions.includes(fileExt)) return;
-
-          if (!fileToMods.has(filePath)) fileToMods.set(filePath, []);
-          fileToMods.get(filePath).push(mod.id);
-        });
-      }
-    }
-
-    const collisionFingerprints = new Map(); // modId::otherId::files -> hash
-
-    for (const [filePath, modsUsing] of fileToMods.entries()) {
-      if (modsUsing.length > 1) {
-        modsUsing.forEach(mid => {
-          const mod = activeMods.find(m => m.id === mid);
-          const others = modsUsing.filter(o => o !== mid);
-
-          // Legacy-style grouping: Create a unique fingerprint for this specific set of mod collisions
-          others.forEach(otherId => {
-            const pairKey = [mid, otherId].sort().join('::');
-            if (!collisionFingerprints.has(pairKey)) collisionFingerprints.set(pairKey, new Set());
-            collisionFingerprints.get(pairKey).add(filePath);
-          });
-
-          issues.push({
-            modId: mid, modName: mod ? mod.name : mid, type: 'conflict', subType: 'file',
-            detail: `File Conflict: ${path.basename(filePath)} with ${others.join(', ')}`,
-            file: filePath, conflictingWith: others
-          });
         });
       }
     }
@@ -481,28 +629,8 @@ class WorkshopService {
     const active = [];
     const ignored = [];
 
-    // Filter issues by fingerprint whitelist
     issues.forEach(issue => {
-      // rule-based incompatibilities don't have fingerprints for now (they are always active)
-      if (issue.type === 'missing' || issue.subType === 'rule') {
-        active.push(issue);
-        return;
-      }
-
-      if (!issue.conflictingWith) {
-        active.push(issue);
-        return;
-      }
-
-      const otherId = issue.conflictingWith[0];
-      const overlap = Array.from(fileToMods.entries())
-        .filter(([_, mods]) => mods.includes(issue.modId) && mods.includes(otherId))
-        .map(([fp, _]) => fp);
-
-      const fingerprint = this._getConflictFingerprint(issue.modId, otherId, overlap);
-      issue.fingerprint = fingerprint; // Attach for UI
-
-      if (this.ignoredFingerprints.includes(fingerprint)) {
+      if (issue.fingerprint && this.ignoredFingerprints.includes(issue.fingerprint)) {
         ignored.push(issue);
       } else {
         active.push(issue);
@@ -517,88 +645,6 @@ class WorkshopService {
     const sortedMods = [modId, otherId].sort().join('::');
     const data = `${sortedMods}::${sortedFiles}`;
     return crypto.createHash('sha256').update(data).digest('hex');
-  }
-
-  async diagnoseConflict(fingerprint, activeModIds, filePath = null) {
-    try {
-      const { active, ignored } = this.getAllConflicts(activeModIds);
-    
-    // Find by fingerprint AND file path for precision, fallback to first fingerprint match
-    const targetIssue = (active.find(i => i.fingerprint === fingerprint && (!filePath || i.file === filePath)) || 
-                        ignored.find(i => i.fingerprint === fingerprint && (!filePath || i.file === filePath))) ||
-                        (active.find(i => i.fingerprint === fingerprint) || 
-                        ignored.find(i => i.fingerprint === fingerprint));
-
-    if (!targetIssue) return { error: 'Conflict not found or no longer active' };
-
-    const report = {
-      issue: targetIssue,
-      mods: [],
-      snippets: {},
-      aiContext: ""
-    };
-
-    const modIdsToCheck = [targetIssue.modId, ...(targetIssue.conflictingWith || [])];
-
-    for (const mid of modIdsToCheck) {
-      const mod = this.scannedMods.find(m => m.id === mid);
-      if (!mod) continue;
-
-      report.mods.push({
-        id: mod.id,
-        name: mod.name,
-        path: mod.absolute_path,
-        workshopId: mod.workshop_id
-      });
-
-      if (targetIssue.subType === 'file' && targetIssue.file) {
-        const ext = path.extname(targetIssue.file).toLowerCase();
-        const binaryExts = ['.wav', '.ogg', '.bank', '.mp3', '.png', '.jpg', '.jpeg', '.tga', '.dds', '.fbx', '.x'];
-        
-        if (binaryExts.includes(ext)) {
-          report.snippets[mid] = `[Binary file: ${ext} - Snippets not available for audio/media assets]`;
-        } else {
-          const fullPath = path.join(mod.absolute_path, 'media', targetIssue.file);
-          if (fs.existsSync(fullPath)) {
-            try {
-              const content = fs.readFileSync(fullPath, 'utf8');
-              // For file conflicts, show the first 50 lines as context
-              report.snippets[mid] = content.split('\n').slice(0, 50).join('\n');
-            } catch (e) {
-              report.snippets[mid] = `[Error reading file: ${e.message}]`;
-            }
-          }
-        }
-      }
-      // Logic conflicts (future) would be handled here
-    }
-
-    // Generate AI Context
-    let context = `# Mod Conflict Diagnosis\n`;
-    context += `**Type**: ${targetIssue.subType === 'file' ? 'File Overwrite' : 'Logic Conflict'}\n`;
-    context += `**Detail**: ${targetIssue.detail}\n\n`;
-    context += `## Involved Mods\n`;
-    report.mods.forEach(m => {
-      context += `- **${m.name}** (${m.id}) -> \`${m.path}\`\n`;
-    });
-    context += `\n## Code Snippets\n`;
-    for (const mid of modIdsToCheck) {
-      const mod = report.mods.find(m => m.id === mid);
-      const snippet = report.snippets[mid];
-      if (snippet && mod) {
-        const ext = targetIssue.file ? path.extname(targetIssue.file).substring(1) : 'text';
-        context += `### Mod: ${mod.name}\n\`\`\`${ext}\n${snippet}\n\`\`\`\n\n`;
-      }
-    }
-    context += `\n## Request for AI\n`;
-    context += `The mods above are conflicting. Mod B (the one later in the list) will overwrite the behavior of Mod A. Please analyze if these conflicts are critical and suggest a fix or a way to merge them if possible.`;
-
-    report.aiContext = context;
-    return report;
-    } catch (e) {
-      console.error('Diagnosis Error:', e);
-      return { error: e.message };
-    }
   }
 }
 

@@ -23,7 +23,5 @@ contextBridge.exposeInMainWorld('electron', {
   importIniPreset: (data) => ipcRenderer.invoke('import-ini-preset', data),
   importSandboxPreset: (data) => ipcRenderer.invoke('import-sandbox-preset', data),
   createMultiBackup: (data) => ipcRenderer.invoke('create-multi-backup', data),
-  diagnoseConflict: (data) => ipcRenderer.invoke('diagnose-conflict', data),
-  showItemInFolder: (path) => ipcRenderer.invoke('show-item-in-folder', path),
-  generateAiDiagnosis: (context) => ipcRenderer.invoke('ai-generate-diagnosis', { context })
+  showItemInFolder: (path) => ipcRenderer.invoke('show-item-in-folder', path)
 });

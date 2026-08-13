@@ -113,19 +113,6 @@ export const useModManagement = () => {
     }
   }, [serverMods, refreshIssues]);
 
-  const handleDiagnose = useCallback(async (fingerprint: string, filePath?: string) => {
-    try {
-      return await ipcService.diagnoseConflict({ 
-        fingerprint, 
-        activeModIds: serverMods,
-        filePath 
-      });
-    } catch (e) {
-      console.error('Diagnosis failed:', e);
-      return null;
-    }
-  }, [serverMods]);
-
   return {
     mods,
     serverMods,
@@ -141,7 +128,6 @@ export const useModManagement = () => {
     handleDeactivate,
     handleSyncAll,
     handleIgnoreConflict,
-    handleRestoreConflict,
-    handleDiagnose
+    handleRestoreConflict
   };
 };

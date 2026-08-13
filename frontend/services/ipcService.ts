@@ -1,4 +1,4 @@
-import type { Mod, Issue, Settings, IniData, SyncResult, SaveResult, DiagnosisReport } from '../types/mod_manager';
+import type { Mod, Issue, Settings, IniData, SyncResult, SaveResult } from '../types/mod_manager';
 
 /**
  * 📡 HellDrinx IPC Service
@@ -50,9 +50,6 @@ export const ipcService = {
 
   unignoreConflictFingerprint: (fingerprint: string): Promise<SaveResult> =>
     electron.unignoreConflictFingerprint(fingerprint),
-
-  diagnoseConflict: (data: { fingerprint: string, activeModIds: string[], filePath?: string }): Promise<DiagnosisReport> =>
-    electron.diagnoseConflict(data),
 
   // --- World Config & Sandbox ---
   getServerConfig: (iniPath: string): Promise<any> =>

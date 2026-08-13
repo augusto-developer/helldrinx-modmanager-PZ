@@ -101,8 +101,34 @@ export const ModGroup: React.FC<ModGroupProps> = ({
               </div>
             )}
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 flex-wrap">
             <p className="text-[10px] text-zinc-500 font-mono tracking-tighter">ID: {workshopId}</p>
+            {(mainMod.categories || (mainMod.category ? [mainMod.category] : [])).map((cat, cIdx) => (
+              <span key={cIdx} className={`text-[9px] font-black uppercase px-2 py-0.5 rounded-full border ${
+                cat === 'map' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30' :
+                cat === 'vehicle' ? 'bg-cyan-500/10 text-cyan-400 border-cyan-500/30' :
+                cat === 'weapons' ? 'bg-red-500/10 text-red-400 border-red-500/30' :
+                cat === 'clothes' ? 'bg-purple-500/10 text-purple-400 border-purple-500/30' :
+                cat === 'items' ? 'bg-amber-500/10 text-amber-400 border-amber-500/30' :
+                cat === 'sound' ? 'bg-pink-500/10 text-pink-400 border-pink-500/30' :
+                cat === 'animations' ? 'bg-indigo-500/10 text-indigo-400 border-indigo-500/30' :
+                cat === 'tiles' ? 'bg-yellow-500/10 text-yellow-400 border-yellow-500/30' :
+                cat === 'traits' ? 'bg-lime-500/10 text-lime-400 border-lime-500/30' :
+                cat === 'npc' ? 'bg-teal-500/10 text-teal-400 border-teal-500/30' :
+                cat === 'tweaks' ? 'bg-blue-500/10 text-blue-400 border-blue-500/30' :
+                cat === 'ui' ? 'bg-fuchsia-500/10 text-fuchsia-400 border-fuchsia-500/30' :
+                cat === 'translation' ? 'bg-orange-500/10 text-orange-400 border-orange-500/30' :
+                cat === 'preorder' ? 'bg-yellow-500/20 text-yellow-300 border-yellow-500/40' :
+                'bg-zinc-800/80 text-zinc-400 border-zinc-700/60'
+              }`}>
+                {cat}
+              </span>
+            ))}
+            {mainMod.authors && mainMod.authors.length > 0 && (
+              <span className="text-[9px] text-zinc-400 bg-zinc-900/90 px-2 py-0.5 rounded-full border border-zinc-800 font-medium">
+                by {mainMod.authors.join(', ')}
+              </span>
+            )}
           </div>
 
           {/* Main Mod specific issues (Always visible since it's the Core) */}
